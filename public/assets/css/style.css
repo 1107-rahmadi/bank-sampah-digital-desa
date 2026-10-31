@@ -1,54 +1,97 @@
 /**
  * Bank Sampah Digital Desa - Main Stylesheet
- *
+ *assets/css/style.css
  * Style dasar untuk aplikasi web
  */
 
 /* ============================================
-   CSS Variables
+   Font Faces
+   ------------------------------------------------------------
+   Plus Jakarta Sans dipakai oleh sistem visual modern (Dashboard
+   Nasabah). Page ini di-deploy self-hosted di server desa dengan
+   koneksi terbatas, jadi face ini dicoba dulu dari font yang
+   terpasang di perangkat (tanpa request jaringan).
+
+   Untuk pemakaian offline penuh (disarankan untuk server desa),
+   letakkan file .woff2 di public/assets/fonts/ lalu declare
+   @font-face dengan src url() lokal untuk tiap bobot, contoh:
+       src: url('../fonts/PlusJakartaSans-Regular.woff2') format('woff2');
+   Hapus <link> Google Fonts pada view yang memakai file lokal.
+   ============================================ */
+
+/* ============================================
+   Design System Tokens
    ============================================ */
 :root {
-    /* Warna Utama */
+    /* Green primary palette */
+    --green-deep: #1a6332;
+    --green-mid: #2e7d32;
+    --green-light: #4caf50;
+    --green-pale: #e8f5e9;
+    --green-muted: #a5d6a7;
+
+    /* Semantic greens */
+    --color-success: #2e7d32;
+    --color-success-light: #e8f5e9;
+    --color-warning: #e65100;
+    --color-warning-light: #fff3e0;
+    --color-error: #c62828;
+    --color-error-light: #ffebee;
+    --color-info: #1565c0;
+    --color-info-light: #e3f2fd;
+
+    /* Legacy colors (maintained for compatibility) */
     --color-primary: #2e7d32;
     --color-primary-dark: #1b5e20;
     --color-primary-light: #4caf50;
-
-    /* Warna Sekunder */
     --color-secondary: #1565c0;
     --color-secondary-dark: #0d47a1;
     --color-secondary-light: #42a5f5;
-
-    /* Warna Netral */
     --color-dark: #212121;
     --color-gray: #757575;
     --color-light: #f5f5f5;
     --color-white: #ffffff;
 
-    /* Warna Status */
-    --color-success: #4caf50;
-    --color-warning: #ff9800;
-    --color-error: #f44336;
-    --color-info: #2196f3;
+    /* Typography */
+    --font-sans: 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
+    --font-family: 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
 
-    /* Spacing */
+    /* Spacing scale (4px base) */
+    --space-1: 0.25rem;   /* 4px */
+    --space-2: 0.5rem;    /* 8px */
+    --space-3: 0.75rem;   /* 12px */
+    --space-4: 1rem;      /* 16px */
+    --space-5: 1.25rem;   /* 20px */
+    --space-6: 1.5rem;    /* 24px */
+    --space-8: 2rem;      /* 32px */
+    --space-10: 2.5rem;   /* 40px */
+    --space-12: 3rem;     /* 48px */
     --space-xs: 0.25rem;
     --space-sm: 0.5rem;
     --space-md: 1rem;
     --space-lg: 1.5rem;
     --space-xl: 2rem;
 
-    /* Border Radius */
-    --radius-sm: 4px;
-    --radius-md: 8px;
-    --radius-lg: 12px;
+    /* Border radius */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --radius-full: 9999px;
 
-    /* Shadow */
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
-    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
-    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+    /* Shadows */
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.1);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.06);
+    --shadow-lg: 0 10px 15px rgba(0,0,0,0.05), 0 4px 6px rgba(0,0,0,0.04);
+    --shadow-xl: 0 20px 25px rgba(0,0,0,0.06), 0 8px 10px rgba(0,0,0,0.04);
 
-    /* Font */
-    --font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    /* Layout */
+    --sidebar-width: 280px;
+    --header-height: 64px;
+
+    /* Transitions */
+    --transition-fast: 150ms ease;
+    --transition-base: 200ms ease;
+    --transition-slow: 300ms ease;
 }
 
 /* ============================================
@@ -61,7 +104,7 @@
 }
 
 body {
-    font-family: var(--font-family);
+    font-family: var(--font-sans);
     font-size: 16px;
     line-height: 1.6;
     color: var(--color-dark);

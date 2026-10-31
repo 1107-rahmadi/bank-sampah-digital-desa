@@ -1,4 +1,7 @@
 <?php
+
+require_once __DIR__ . '/../helpers/render.php';
+
 /**
  * Admin Controller
  *
@@ -61,6 +64,7 @@ class AdminController
         $user = currentUser();
         $flash = getFlashMessage();
 
+        // render('/admin/dashboard.php');
         include VIEW_PATH . '/admin/dashboard.php';
     }
 

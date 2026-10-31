@@ -1,101 +1,157 @@
 <?php
-function formatRupiah($n): string { return 'Rp ' . number_format($n, 0, ',', '.'); }
-$user = currentUser();
+/**
+ * pengelola/transaksi_jual/index.php
+ * Daftar Transaksi Jual ke pengepul (Pengelola).
+ *
+ * Compatible dengan PHP 7.3+
+ *
+ * @var array|null $flash
+ * @var array      $stats        total_transaksi, total_berat, total_nilai,
+ *                                total_lunas, total_belum_bayar
+ * @var array      $transaksis   tiap item: id, no_transaksi, tanggal, pengepul_nama,
+ *                                total_berat, total_nilai, status_bayar (BELUM|LUNAS),
+ *                                status (SAH|BATAL)
+ */
+
+require_once VIEW_PATH . '/pengelola/partials/ui.php';
+
+$menuAktif = 'pengelola/transaksi-jual';
+$judulHalaman = 'Transaksi Jual';
+
+$stats = isset($stats) && is_array($stats) ? $stats : [];
+$transaksis = isset($transaksis) && is_array($transaksis) ? $transaksis : [];
+
+$totalTransaksi = (float) ($stats['total_transaksi'] ?? 0);
+$totalBerat = (float) ($stats['total_berat'] ?? 0);
+$totalNilai = (float) ($stats['total_nilai'] ?? 0);
+$piutang = (float) ($stats['total_belum_bayar'] ?? 0);
+
+/*
+ * Kelompokkan per tanggal. Data dari server sudah urut terbaru lebih dulu.
+ */
+$grup = [];
+foreach ($transaksis as $t) {
+    $ts = isset($t['tanggal']) ? strtotime((string) $t['tanggal']) : false;
+    if ($ts) {
+        $kunci = date('Y-m-d', $ts);
+        $label = tanggalSingkatIndonesia($kunci);
+        $jam = date('H:i', $ts);
+    } else {
+        $kunci = 'tanpa-tanggal';
+        $label = 'Tanggal tidak diketahui';
+        $jam = '-';
+    }
+    if (!isset($grup[$kunci])) {
+        $grup[$kunci] = ['label' => $label, 'items' => []];
+    }
+    $t['_jam'] = $jam;
+    $grup[$kunci]['items'][] = $t;
+}
 ?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Transaksi Jual - <?= APP_NAME ?></title>
-    <style>
-        * { box-sizing: border-box; } body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #f5f7fa; }
-        .dashboard-wrapper { display: flex; min-height: 100vh; }
-        .sidebar { width: 260px; background: linear-gradient(180deg, #1565c0, #1976d2); color: white; flex-shrink: 0; }
-        .sidebar-header { padding: 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .sidebar-header h2 { margin: 0; font-size: 1.1rem; }
-        .sidebar nav a { display: flex; align-items: center; gap: 10px; color: rgba(255,255,255,0.8); text-decoration: none; padding: 0.875rem 1.5rem; border-left: 3px solid transparent; }
-        .sidebar nav a:hover, .sidebar nav a.active { background: rgba(255,255,255,0.15); color: white; border-left-color: #90caf9; }
-        .sidebar nav a.logout { margin-top: 2rem; color: #ffcdd2; }
-        .main-content { flex: 1; padding: 2rem; }
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
-        .page-header h1 { margin: 0; font-size: 1.5rem; color: #1565c0; }
-        .breadcrumb { color: #888; font-size: 0.9rem; }
-        .breadcrumb a { color: #1565c0; text-decoration: none; }
-        .flash { padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
-        .flash-success { background: #d4edda; color: #155724; }
-        .card { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-        .card-header { padding: 1rem 1.5rem; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; }
-        .card-header h3 { margin: 0; font-size: 1rem; }
-        .stats-row { display: flex; gap: 1rem; padding: 1rem 1.5rem; background: #f8f9fa; }
-        .stat-item { text-align: center; }
-        .stat-item h4 { margin: 0; font-size: 1.25rem; color: #f57c00; }
-        .stat-item p { margin: 0; font-size: 0.8rem; color: #888; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 0.875rem 1rem; text-align: left; border-bottom: 1px solid #eee; }
-        th { background: #f8f9fa; font-size: 0.8rem; color: #888; text-transform: uppercase; }
-        .btn { padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem; font-weight: 600; background: #1565c0; color: white; }
-        .btn:hover { background: #0d47a1; }
-        .badge { padding: 0.25rem 0.5rem; border-radius: 20px; font-size: 0.7rem; font-weight: 600; }
-        .badge-success { background: #e8f5e9; color: #2e7d32; }
-        .badge-warning { background: #fff3e0; color: #f57c00; }
+    <?= pengelolaHead($judulHalaman) ?>
+    <style> 
+        /* Gaya khusus halaman daftar transaksi jual. */
+        .wallet-split { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 20px; }
+        .split { padding: 12px 16px; border-radius: 16px; background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .18); }
+        .split-label { font-size: .875rem; color: rgba(255, 255, 255, .92); }
+        .split-value { margin-top: 2px; font-size: 1.1875rem; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+
+        @media (max-width: 560px) {
+            .wallet-split { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+        }
     </style>
 </head>
 <body>
-    <div class="dashboard-wrapper">
-        <aside class="sidebar">
-            <div class="sidebar-header"><h2>📦 <?= APP_NAME ?></h2></div>
-            <nav>
-                <a href="<?= base_url('pengelola/dashboard') ?>">📊 Dashboard</a>
-                <a href="<?= base_url('pengelola/transaksi-beli') ?>">🛒 Transaksi Beli</a>
-                <a href="<?= base_url('pengelola/transaksi-jual') ?>" class="active">📤 Transaksi Jual</a>
-                <a href="<?= base_url('pengelola/kategori') ?>">📦 Kategori</a>
-                <a href="<?= base_url('pengelola/harga') ?>">💰 Harga</a>
-                <a href="<?= base_url('pengelola/nasabah') ?>">👥 Nasabah</a>
-                <a href="<?= base_url('pengelola/pengepul') ?>">🚛 Pengepul</a>
-                <a href="<?= base_url('logout') ?>" class="logout">🚪 Logout</a>
-            </nav>
-        </aside>
+    <?php include VIEW_PATH . '/pengelola/partials/sidebar.php'; ?>
+    <div class="scrim" id="scrim"></div>
 
-        <main class="main-content">
-            <?php if ($flash): ?><div class="flash flash-<?= $flash['type'] ?>"><?= htmlspecialchars($flash['message']) ?></div><?php endif; ?>
+    <div class="main">
+        <?php include VIEW_PATH . '/pengelola/partials/topbar.php'; ?>
 
-            <div class="page-header">
-                <div>
-                    <h1>📤 Transaksi Jual (Penjualan ke Pengepul)</h1>
-                    <div class="breadcrumb"><a href="<?= base_url('pengelola/dashboard') ?>">Dashboard</a> / Transaksi Jual</div>
-                </div>
-                <a href="<?= base_url('pengelola/transaksi-jual/add') ?>" class="btn">➕ Transaksi Baru</a>
-            </div>
+        <main class="content">
+            <div class="wrap">
+                <a class="back" href="<?= base_url('pengelola/dashboard') ?>"><?= icon('arrow-left') ?>Dashboard</a>
 
-            <div class="card">
-                <div class="stats-row">
-                    <div class="stat-item"><h4><?= number_format($stats['total_transaksi'] ?? 0) ?></h4><p>Total Transaksi</p></div>
-                    <div class="stat-item"><h4><?= number_format($stats['total_berat'] ?? 0, 1) ?> kg</h4><p>Total Berat</p></div>
-                    <div class="stat-item"><h4><?= formatRupiah($stats['total_nilai'] ?? 0) ?></h4><p>Total Nilai</p></div>
-                    <div class="stat-item"><h4><?= formatRupiah($stats['total_belum_bayar'] ?? 0) ?></h4><p>Piutang</p></div>
+                <?php if (!empty($flash) && !empty($flash['message'])): ?>
+                    <div class="notice notice-<?= htmlspecialchars($flashClass, ENT_QUOTES, 'UTF-8') ?>" role="status">
+                        <?= icon($flashIcon) ?><span><?= htmlspecialchars((string) $flash['message'], ENT_QUOTES, 'UTF-8') ?></span>
+                    </div>
+                <?php endif; ?>
+
+                <div class="page-head">
+                    <div>
+                        <h1>Transaksi Jual</h1>
+                        <p class="lead">Penjualan sampah ke pengepul. Stok berkurang setelah pengepul membayar.</p>
+                    </div>
+                    <a class="btn btn-primary" href="<?= base_url('pengelola/transaksi-jual/add') ?>"><?= icon('plus') ?>Transaksi Baru</a>
                 </div>
 
-                <table>
-                    <thead><tr><th>No Transaksi</th><th>Tanggal</th><th>Pengepul</th><th>Berat</th><th>Total</th><th>Status Bayar</th></tr></thead>
-                    <tbody>
-                        <?php foreach ($transaksis as $t): ?>
-                            <tr>
-                                <td><strong><?= htmlspecialchars($t['no_transaksi']) ?></strong></td>
-                                <td><?= date('d/m/Y H:i', strtotime($t['tanggal'])) ?></td>
-                                <td><?= htmlspecialchars($t['pengepul_nama'] ?? '-') ?></td>
-                                <td><?= number_format($t['total_berat'], 1) ?> kg</td>
-                                <td><strong><?= formatRupiah($t['total_nilai']) ?></strong></td>
-                                <td><span class="badge badge-<?= $t['status_bayar'] === 'LUNAS' ? 'success' : 'warning' ?>"><?= $t['status_bayar'] ?></span></td>
-                            </tr>
-                        <?php endforeach; ?>
-                        <?php if (empty($transaksis)): ?>
-                            <tr><td colspan="6" style="text-align:center;color:#888;padding:2rem;">Belum ada transaksi</td></tr>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
+                <section class="wallet" aria-label="Ringkasan transaksi jual">
+                    <span class="wallet-label"><?= icon('wallet') ?>Total nilai penjualan</span>
+                    <p class="wallet-value"><?= htmlspecialchars(formatRupiah($totalNilai), ENT_QUOTES, 'UTF-8') ?></p>
+
+                    <div class="wallet-split">
+                        <div class="split">
+                            <div class="split-label">Total transaksi</div>
+                            <div class="split-value"><?= htmlspecialchars(number_format($totalTransaksi, 0, ',', '.'), ENT_QUOTES, 'UTF-8') ?></div>
+                        </div>
+                        <div class="split">
+                            <div class="split-label">Total berat</div>
+                            <div class="split-value"><?= htmlspecialchars(formatBeratKg($totalBerat), ENT_QUOTES, 'UTF-8') ?></div>
+                        </div>
+                        <div class="split">
+                            <div class="split-label">Piutang</div>
+                            <div class="split-value"><?= htmlspecialchars(formatRupiah($piutang), ENT_QUOTES, 'UTF-8') ?></div>
+                        </div>
+                    </div>
+                </section>
+
+                <?php if (!empty($grup)): ?>
+                    <?php foreach ($grup as $g): ?>
+                        <h2 class="group-label"><?= htmlspecialchars($g['label'], ENT_QUOTES, 'UTF-8') ?></h2>
+                        <ul class="list">
+                            <?php foreach ($g['items'] as $t):
+                                $lunas = strtoupper((string) ($t['status_bayar'] ?? '')) === 'LUNAS';
+                                $batal = strtoupper((string) ($t['status'] ?? 'SAH')) === 'BATAL';
+                            ?>
+                                <li class="row">
+                                    <span class="ico ico--info" aria-hidden="true"><?= icon('truck') ?></span>
+                                    <span class="row-main">
+                                        <span class="row-title">
+                                            <a href="<?= base_url('pengelola/transaksi-jual/detail?id=' . (int) ($t['id'] ?? 0)) ?>"><?= htmlspecialchars((string) ($t['pengepul_nama'] ?? '-'), ENT_QUOTES, 'UTF-8') ?></a>
+                                        </span>
+                                        <span class="row-sub">
+                                            <span><?= htmlspecialchars((string) ($t['no_transaksi'] ?? '-'), ENT_QUOTES, 'UTF-8') ?></span>
+                                            <span><?= htmlspecialchars((string) ($t['_jam'] ?? '-'), ENT_QUOTES, 'UTF-8') ?></span>
+                                            <span><?= htmlspecialchars(formatBeratKg($t['total_berat'] ?? 0), ENT_QUOTES, 'UTF-8') ?></span>
+                                        </span>
+                                    </span>
+                                    <span class="row-end">
+                                        <span class="row-amount"><?= htmlspecialchars(formatRupiah($t['total_nilai'] ?? 0), ENT_QUOTES, 'UTF-8') ?></span>
+                                        <?php if ($batal): ?>
+                                            <span class="badge badge--danger">Dibatalkan</span>
+                                        <?php else: ?>
+                                            <span class="badge badge--<?= $lunas ? 'success' : 'warning' ?>"><?= $lunas ? 'Lunas' : 'Belum lunas' ?></span>
+                                        <?php endif; ?>
+                                    </span>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <div class="empty">
+                        <span class="ico" aria-hidden="true"><?= icon('inbox') ?></span>
+                        <h2>Belum ada transaksi</h2>
+                        <p>Penjualan ke pengepul yang dicatat akan muncul di sini.</p>
+                    </div>
+                <?php endif; ?>
             </div>
         </main>
     </div>
+
+    <?= pengelolaScripts() ?>
 </body>
 </html>

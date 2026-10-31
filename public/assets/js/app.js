@@ -1,6 +1,6 @@
 /**
  * Bank Sampah Digital Desa - Main JavaScript
- *
+ *assets/css/app.js
  * File JavaScript utama untuk interaksi frontend
  */
 

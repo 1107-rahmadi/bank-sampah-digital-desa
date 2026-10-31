@@ -6,15 +6,51 @@
  * Semua request akan diarahkan ke file ini.
  */
 
-// Mulai session
+// Batas waktu session web: detik tanpa aktivitas.
+// 30 = untuk tes. Ganti ke 1800 (30 menit) atau 28800 (8 jam) untuk pemakaian nyata.
+define('SESSION_TIMEOUT', 300);
+
+ini_set('session.gc_maxlifetime', (string) SESSION_TIMEOUT);
+
+// Cookie sesi: HttpOnly + SameSite (NFR-01). Flag Secure hanya di HTTPS.
+$httpsAktif = (!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off')
+    || (isset($_SERVER['SERVER_PORT']) && (int) $_SERVER['SERVER_PORT'] === 443);
+
+session_set_cookie_params([
+    'lifetime' => 0,
+    'path'     => '/',
+    'httponly' => true,
+    'secure'   => $httpsAktif,
+    'samesite' => 'Lax',
+]);
+
 session_start();
+
+if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > SESSION_TIMEOUT) {
+    session_unset();
+    session_destroy();
+    session_start();
+}
+$_SESSION['last_activity'] = time();
 
 // Load konfigurasi
 require_once __DIR__ . '/../config/app.php';
 require_once __DIR__ . '/../config/database.php';
 
+// NFR-01: di environment produksi, akses wajib lewat HTTPS.
+if (APP_ENV === 'production' && empty($httpsAktif)) {
+    $hostRedirect = $_SERVER['HTTP_HOST'] ?? '';
+    $uriRedirect = $_SERVER['REQUEST_URI'] ?? '/';
+    header('Location: https://' . $hostRedirect . $uriRedirect, true, 301);
+    exit;
+}
+
 // Load helpers
 require_once APP_PATH . '/helpers/auth.php';
+require_once APP_PATH . '/helpers/money.php';
+// util.php menyediakan uuidV4() (dipakai TransaksiBeli) dan nomorUrut()
+// (dipakai PengajuanPencairan). Tanpa file ini kedua fungsi undefined.
+require_once APP_PATH . '/helpers/util.php';
 
 // Load AuthController untuk route login/logout
 require_once CONTROLLER_PATH . '/AuthController.php';
@@ -221,6 +257,13 @@ if ($controllerName === 'Admin') {
         $controller->auditLog();
         exit;
     }
+
+    // /admin/pengaturan
+    if ($methodName === 'pengaturan') {
+        $controller->pengaturan();
+        exit;
+    }
+
     // Default ke dashboard
     $controller->dashboard();
     exit;
@@ -235,6 +278,10 @@ if ($controllerName === 'Pengelola') {
     if ($methodName === 'transaksi-beli') {
         if ($param1 === 'add') {
             $controller->transaksiBeliForm();
+        } elseif ($param1 === 'detail') {
+            $controller->transaksiBeliDetail();
+        } elseif ($param1 === 'batal') {
+            $controller->transaksiBeliBatal();
         } else {
             $controller->transaksiBeli();
         }
@@ -245,35 +292,33 @@ if ($controllerName === 'Pengelola') {
     if ($methodName === 'transaksi-jual') {
         if ($param1 === 'add') {
             $controller->transaksiJualForm();
+        } elseif ($param1 === 'detail') {
+            $controller->transaksiJualDetail();
+        } elseif ($param1 === 'lunas') {
+            $controller->transaksiJualLunas();
+        } elseif ($param1 === 'batal') {
+            $controller->transaksiJualBatal();
         } else {
             $controller->transaksiJual();
         }
         exit;
     }
 
-    // /pengelola/kategori
-    if ($methodName === 'kategori') {
-        if ($param1 === 'add') {
-            $controller->kategoriForm();
-        } elseif ($param1 === 'edit') {
-            $controller->kategoriForm();
-        } elseif ($param1 === 'delete') {
-            $controller->kategoriDelete();
-        } else {
-            $controller->kategori();
-        }
+    // /pengelola/stok
+    if ($methodName === 'stok') {
+        $controller->stok();
         exit;
     }
 
+    // /pengelola/kategori
+    
+
     // /pengelola/harga
+    // Pengelola hanya boleh melihat harga (PROSES_BISNIS.md bagian 1).
+    // Pengelolaan harga dan kategori adalah tanggung jawab Admin (FR-19);
+    // sampai peran itu ditentukan, tautan tambah/ubah tidak diaktifkan.
     if ($methodName === 'harga') {
-        if ($param1 === 'add') {
-            $controller->hargaForm();
-        } elseif ($param1 === 'edit') {
-            $controller->hargaForm();
-        } else {
-            $controller->harga();
-        }
+        $controller->harga();
         exit;
     }
 
@@ -283,8 +328,8 @@ if ($controllerName === 'Pengelola') {
             $controller->pengepulForm();
         } elseif ($param1 === 'edit') {
             $controller->pengepulForm();
-        } elseif ($param1 === 'delete') {
-            $controller->pengepulDelete();
+        } elseif ($param1 === 'nonaktifkan') {
+            $controller->pengepulNonaktifkan();
         } else {
             $controller->pengepul();
         }
@@ -293,7 +338,17 @@ if ($controllerName === 'Pengelola') {
 
     // /pengelola/nasabah
     if ($methodName === 'nasabah') {
-        $controller->nasabah();
+        if ($param1 === 'add') {
+            $controller->nasabahForm();
+        } elseif ($param1 === 'edit') {
+            $controller->nasabahForm();
+        } elseif ($param1 === 'nonaktifkan') {
+            $controller->nasabahNonaktifkan();
+        } elseif ($param1 === 'aktifkan') {
+            $controller->nasabahAktifkan();
+        } else {
+            $controller->nasabah();
+        }
         exit;
     }
 

@@ -109,14 +109,19 @@ class Pengepul
     }
 
     /**
-     * Hapus pengepul
+     * Nonaktifkan pengepul.
+     *
+     * Pengepul yang sudah punya transaksi tidak boleh dihapus (BR-08).
+     * Datanya ditandai NONAKTIF supaya riwayat tetap utuh (keputusan 9).
      *
      * @param int $id
      * @return bool
      */
     public function delete(int $id): bool
     {
-        $stmt = $this->db->prepare("DELETE FROM pengepul WHERE id = :id");
+        $stmt = $this->db->prepare("
+            UPDATE pengepul SET status = 'NONAKTIF' WHERE id = :id
+        ");
         return $stmt->execute(['id' => $id]);
     }
 }

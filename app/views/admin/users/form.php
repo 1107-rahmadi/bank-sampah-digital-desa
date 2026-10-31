@@ -1,158 +1,451 @@
 <?php
 /**
  * Form Tambah/Edit Pengguna
+ * Compatible dengan PHP 7.3+
+ *
+ * Variabel dari controller: $editUser (null saat tambah), $desas, $banks,
+ * $errors, $flash, (opsional) $oldInput
  */
-$isEdit = isset($editUser) && $editUser;
+
+if (!function_exists('icon')) {
+    /**
+     * Ikon SVG garis yang konsisten (tanpa emoji).
+     */
+    function icon(string $name, string $class = ''): string
+    {
+        $paths = [
+            'menu' => '<path d="M4 7h16M4 12h16M4 17h16"/>',
+            'leaf' => '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
+            'grid' => '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+            'users' => '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+            'user' => '<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>',
+            'building' => '<path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M16 9h2a2 2 0 0 1 2 2v10M2 21h20M8 7h4M8 11h4M8 15h4"/>',
+            'pin' => '<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+            'file' => '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z"/><path d="M14 2v6h6M9 14h6M9 18h4"/>',
+            'settings' => '<path d="M4 6h8M16 6h4M4 12h4M12 12h8M4 18h10M18 18h2"/><circle cx="14" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="16" cy="18" r="2"/>',
+            'logout' => '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
+            'arrow-left' => '<path d="M19 12H5M12 19l-7-7 7-7"/>',
+            'phone' => '<rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/>',
+            'mail' => '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+            'lock' => '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+            'eye' => '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+            'eye-off' => '<path d="M17.9 17.9A10.1 10.1 0 0 1 12 19c-6.5 0-10-7-10-7a18 18 0 0 1 4.1-5.1M9.9 5.2A9.7 9.7 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-2.2 3.2"/><path d="M14.1 14.1a3 3 0 1 1-4.2-4.2"/><line x1="2" y1="2" x2="22" y2="22"/>',
+            'check' => '<path d="M5 12.5l4.5 4.5L19 7"/>',
+            'alert' => '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+            'info' => '<circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
+        ];
+
+        $body = isset($paths[$name]) ? $paths[$name] : $paths['info'];
+        $cls = $class !== '' ? ' class="' . htmlspecialchars($class) . '"' : '';
+
+        return '<svg' . $cls . ' viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+            . ' stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"'
+            . ' aria-hidden="true" focusable="false">' . $body . '</svg>';
+    }
+}
+
+$e = function ($v) {
+    return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+};
+
+$editUser = (isset($editUser) && is_array($editUser) && $editUser) ? $editUser : null;
+$oldInput = (isset($oldInput) && is_array($oldInput)) ? $oldInput : [];
+$isEdit = $editUser !== null;
 $user = currentUser();
+$userName = 'Administrator';
+if (is_array($user)) {
+    foreach (['nama', 'name', 'username'] as $k) {
+        if (!empty($user[$k])) {
+            $userName = (string) $user[$k];
+            break;
+        }
+    }
+}
+$userInitial = function_exists('mb_substr')
+    ? mb_strtoupper(mb_substr($userName, 0, 1, 'UTF-8'), 'UTF-8')
+    : strtoupper(substr($userName, 0, 1));
+
+if (!isset($flash)) {
+    $flash = function_exists('getFlashMessage') ? getFlashMessage() : null;
+}
+$flashType = 'info';
+if (!empty($flash['type']) && in_array($flash['type'], ['success', 'error', 'warning', 'info'], true)) {
+    $flashType = $flash['type'];
+}
+$flashIcon = ['success' => 'check', 'error' => 'alert', 'warning' => 'alert', 'info' => 'info'][$flashType];
+
+$errors = (isset($errors) && is_array($errors)) ? $errors : [];
+$desas = (isset($desas) && is_array($desas)) ? $desas : [];
+$banks = (isset($banks) && is_array($banks)) ? $banks : [];
+$appName = defined('APP_NAME') ? APP_NAME : 'Bank Sampah';
+$judul = $isEdit ? 'Edit Pengguna' : 'Tambah Pengguna';
+
+/* Nilai awal field: isian terakhir saat gagal validasi ($_POST / $oldInput), lalu data $editUser */
+$nilai = function ($key) use ($isEdit, $editUser) {
+    global $oldInput;
+    if (isset($_POST[$key]) && is_scalar($_POST[$key])) {
+        return (string) $_POST[$key];
+    }
+    if (isset($oldInput) && is_array($oldInput) && isset($oldInput[$key]) && is_scalar($oldInput[$key])) {
+        return (string) $oldInput[$key];
+    }
+    if ($isEdit && is_array($editUser) && isset($editUser[$key]) && is_scalar($editUser[$key])) {
+        return (string) $editUser[$key];
+    }
+    return '';
+};
+$vNama = $nilai('nama');
+$vHp = $nilai('no_hp');
+$vEmail = $nilai('email');
+$vRole = $nilai('role');
+$vStatus = $nilai('status');
+$vDesa = $nilai('desa_id');
+$vBank = $nilai('bank_sampah_id');
+
+$roleOpsi = [
+    'ADMIN' => 'Admin',
+    'PENGELOLA' => 'Pengelola',
+    'KADES' => 'Kepala Desa',
+    'NASABAH' => 'Nasabah',
+];
+$statusOpsi = [
+    'AKTIF' => 'Aktif',
+    'NONAKTIF' => 'Nonaktif',
+];
+
+$menu = [
+    ['admin/dashboard',   'Dashboard',          'grid'],
+    ['admin/users',       'Kelola Pengguna',    'users'],
+    ['admin/nasabah',     'Kelola Nasabah',     'user'],
+    ['admin/bank-sampah', 'Kelola Bank Sampah', 'building'],
+    ['admin/desa',        'Kelola Desa',        'pin'],
+    ['admin/audit-log',   'Audit Log',          'file'],
+    ['admin/pengaturan',  'Pengaturan',         'settings'],
+];
+$menuAktif = 'admin/users';
 ?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= $isEdit ? 'Edit' : 'Tambah' ?> Pengguna - <?= APP_NAME ?></title>
+    <meta name="theme-color" content="#1b5e20">
+    <title><?= $e($judul) ?> - <?= $e($appName) ?></title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+        (function () {
+            var r = document.documentElement;
+            r.classList.add('no-anim');
+            var s = null;
+            try { s = localStorage.getItem('nav'); } catch (e) {}
+            if (window.innerWidth > 1100 && s !== 'closed') { r.classList.add('nav-open'); }
+        })();
+    </script>
     <style>
-        * { box-sizing: border-box; }
-        body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #f5f7fa; }
-        .dashboard-wrapper { display: flex; min-height: 100vh; }
-        .sidebar { width: 260px; background: linear-gradient(180deg, #1b5e20, #2e7d32); color: white; flex-shrink: 0; }
-        .sidebar-header { padding: 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .sidebar-header h2 { margin: 0; font-size: 1.1rem; }
-        .sidebar nav a { display: flex; align-items: center; gap: 10px; color: rgba(255,255,255,0.8); text-decoration: none; padding: 0.875rem 1.5rem; border-left: 3px solid transparent; }
-        .sidebar nav a:hover, .sidebar nav a.active { background: rgba(255,255,255,0.15); color: white; border-left-color: #a5d6a7; }
-        .sidebar nav a.logout { margin-top: 2rem; color: #ffcdd2; }
-        .main-content { flex: 1; padding: 2rem; }
-        .page-header { margin-bottom: 1.5rem; }
-        .page-header h1 { margin: 0; font-size: 1.5rem; color: #1b5e20; }
-        .breadcrumb { color: #888; font-size: 0.9rem; }
-        .breadcrumb a { color: #2e7d32; text-decoration: none; }
-        .flash { padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
-        .flash-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .flash-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .alert { padding: 1rem; border-radius: 8px; margin-bottom: 1rem; background: #fff3cd; border: 1px solid #ffeeba; color: #856404; }
-        .card { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-        .card-header { padding: 1rem 1.5rem; border-bottom: 1px solid #eee; }
-        .card-header h3 { margin: 0; font-size: 1rem; color: #333; }
-        .card-body { padding: 1.5rem; }
-        .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; }
-        .form-group { margin-bottom: 1rem; }
-        .form-group.full { grid-column: span 2; }
-        .form-group label { display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; }
-        .form-group label span { color: #e53935; }
-        .form-control { width: 100%; padding: 0.75rem 1rem; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; }
-        .form-control:focus { outline: none; border-color: #2e7d32; box-shadow: 0 0 0 3px rgba(46,125,50,0.1); }
-        select.form-control { background: white; }
-        .btn { padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; font-size: 1rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.5rem; border: none; cursor: pointer; }
-        .btn-primary { background: #2e7d32; color: white; }
-        .btn-primary:hover { background: #1b5e20; }
-        .btn-secondary { background: #e0e0e0; color: #333; }
-        .btn-secondary:hover { background: #bdbdbd; }
-        .form-actions { display: flex; gap: 1rem; margin-top: 1.5rem; }
+        :root {
+            --g-900:#0f3d14; --g-800:#1b5e20; --g-700:#2e7d32; --g-600:#43a047; --g-500:#66bb6a;
+            --g-200:#c8e6c9; --g-100:#e8f5e9; --g-50:#f4faf4;
+            --paper:#f7faf6; --ink:#17231a; --ink-2:#3b4a3e; --ink-3:#5b6a5e; --line:#e6ece5;
+            --amber:#a85a00; --amber-bg:#fff1d6; --rose:#b3261e; --rose-bg:#fde8e6; --sky:#1a56c4; --sky-bg:#e2edff;
+            --nav-w:280px;
+        }
+        * { box-sizing:border-box; }
+        html { -webkit-text-size-adjust:100%; }
+        body { margin:0; font-family:'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif; font-size:16px; line-height:1.5; color:var(--ink); background:var(--paper); }
+        a { color:inherit; }
+        svg { display:block; }
+        button, input, select { font-family:inherit; }
+        [hidden] { display:none !important; }
+        :focus-visible { outline:3px solid var(--g-600); outline-offset:2px; }
+        .no-anim *, .no-anim *::before, .no-anim *::after { transition:none !important; }
+
+        /* Sidebar */
+        .sidebar { position:fixed; top:0; left:0; bottom:0; width:var(--nav-w); max-width:86vw; z-index:60; display:flex; flex-direction:column; padding:20px 14px; color:#fff;
+            background:linear-gradient(170deg,var(--g-700) 0%,var(--g-800) 60%,var(--g-900) 100%); transform:translateX(-100%); transition:transform .25s ease; overflow-y:auto; }
+        .nav-open .sidebar { transform:none; }
+        .brand { display:flex; align-items:center; gap:12px; padding:4px 8px 20px; }
+        .brand-mark { width:42px; height:42px; border-radius:14px; background:rgba(255,255,255,.16); display:grid; place-items:center; flex-shrink:0; }
+        .brand-mark svg { width:22px; height:22px; }
+        .brand strong { display:block; font-weight:800; line-height:1.2; }
+        .brand small { opacity:.75; font-size:.85rem; }
+        .sidebar nav { display:flex; flex-direction:column; gap:4px; flex:1; }
+        .sidebar nav a { display:flex; align-items:center; gap:12px; min-height:50px; padding:0 14px; border-radius:14px; text-decoration:none; color:rgba(255,255,255,.95); font-weight:500; transition:background .15s; }
+        .sidebar nav a svg { width:20px; height:20px; flex:none; }
+        .sidebar nav a:hover { background:rgba(255,255,255,.1); color:#fff; }
+        .sidebar nav a.active { background:rgba(255,255,255,.2); color:#fff; font-weight:700; }
+        .sidebar nav a.logout { color:#ffd9d6; margin-top:auto; border-top:1px solid rgba(255,255,255,.14); border-radius:0 0 14px 14px; }
+        .sidebar nav a:focus-visible { outline-color:#fff; }
+        .sidebar nav a.logout:hover { background:rgba(230,90,80,.22); color:#ffd9d6; }
+        .scrim { position:fixed; top:0; right:0; bottom:0; left:0; background:rgba(15,61,20,.45); opacity:0; visibility:hidden; transition:opacity .25s; z-index:50; }
+
+        /* Layout */
+        .main { transition:margin-left .25s ease; min-height:100vh; }
+        @media (min-width:1101px) { .nav-open .main { margin-left:var(--nav-w); } }
+        @media (max-width:1100px) { .nav-open .scrim { opacity:1; visibility:visible; } .nav-open body { overflow:hidden; } }
+        .topbar { position:sticky; top:0; z-index:40; height:68px; display:flex; align-items:center; gap:14px; padding:0 20px; background:rgba(247,250,246,.92); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); border-bottom:1px solid var(--line); }
+        .burger { width:46px; height:46px; border-radius:14px; border:1px solid var(--line); background:#fff; color:var(--g-800); display:grid; place-items:center; cursor:pointer; }
+        .burger:hover { background:var(--g-50); }
+        .burger svg { width:22px; height:22px; }
+        .top-title { font-weight:700; color:var(--ink-2); }
+        .avatar { margin-left:auto; width:42px; height:42px; border-radius:50%; display:grid; place-items:center; color:#fff; font-weight:800; background:linear-gradient(140deg,var(--g-500),var(--g-700)); }
+        .content { padding:24px 20px 64px; }
+        .wrap { max-width:760px; margin:0 auto; }
+
+        .back { display:inline-flex; align-items:center; gap:8px; min-height:44px; margin-bottom:8px; color:var(--g-700); font-weight:600; text-decoration:none; }
+        .back:hover { color:var(--g-800); }
+        .back svg { width:18px; height:18px; }
+        .page-head { margin-bottom:22px; }
+        h1 { margin:0; font-size:1.75rem; line-height:1.25; font-weight:800; letter-spacing:-.01em; }
+        .lead { margin:4px 0 0; color:var(--ink-3); }
+
+        .btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:54px; padding:0 22px; border-radius:16px; border:1.5px solid transparent; font:inherit; font-size:1.0625rem; font-weight:700; text-decoration:none; cursor:pointer; }
+        .btn svg { width:20px; height:20px; }
+        .btn-primary { color:#fff; background:linear-gradient(135deg,var(--g-600),var(--g-700)); box-shadow:0 8px 20px rgba(27,94,32,.22); }
+        .btn-primary:hover { background:linear-gradient(135deg,var(--g-700),var(--g-800)); }
+        .btn-ghost { color:var(--g-800); background:#fff; border-color:var(--g-200); }
+        .btn-ghost:hover { background:var(--g-100); }
+
+        .notice { display:flex; align-items:flex-start; gap:12px; padding:14px 16px; border-radius:16px; margin-bottom:18px; font-weight:500; }
+        .notice svg { flex-shrink:0; margin-top:2px; width:20px; height:20px; }
+        .notice ul { margin:4px 0 0 18px; padding:0; }
+        .notice-success { background:var(--g-50); color:#14532d; border:1px solid var(--g-200); }
+        .notice-error { background:var(--rose-bg); color:var(--rose); border:1px solid #f8c9c5; }
+        .notice-warning { background:var(--amber-bg); color:var(--amber); border:1px solid #f6d9a0; }
+        .notice-info { background:var(--sky-bg); color:var(--sky); border:1px solid #c4d8fa; }
+
+        /* Form */
+        .sec-title { margin:26px 0 10px; font-size:1.125rem; font-weight:700; letter-spacing:-.01em; }
+        .sec-title:first-of-type { margin-top:0; }
+        .panel { background:#fff; border:1px solid var(--line); border-radius:20px; padding:20px; }
+        .grid2 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+        .field { display:block; }
+        .field.full { grid-column:1 / -1; }
+        .label { display:block; margin-bottom:6px; font-size:.9375rem; font-weight:600; color:var(--ink); }
+        .label .req { color:var(--rose); }
+        .hint { margin:6px 0 0; font-size:.875rem; color:var(--ink-3); }
+        .control { position:relative; }
+        .control > .ic { position:absolute; left:14px; top:50%; transform:translateY(-50%); width:20px; height:20px; color:var(--ink-3); pointer-events:none; }
+        .control > .ic svg { width:20px; height:20px; }
+        .input { width:100%; height:52px; padding:0 14px; font-size:1rem; color:var(--ink); background:#fff; border:1.5px solid var(--line); border-radius:14px; transition:border-color .15s, box-shadow .15s; }
+        .control .input { padding-left:44px; }
+        .control .input.has-toggle { padding-right:56px; }
+        .input::placeholder { color:#8a988c; }
+        .input:hover { border-color:var(--g-200); }
+        .input:focus { outline:none; border-color:var(--g-600); box-shadow:0 0 0 4px rgba(67,160,71,.16); }
+        select.input { -webkit-appearance:none; appearance:none; padding-right:42px; cursor:pointer;
+            background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235b6a5e' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+            background-repeat:no-repeat; background-position:right 14px center; background-size:18px; }
+        .toggle { position:absolute; right:6px; top:50%; transform:translateY(-50%); width:44px; height:44px; border:0; border-radius:12px; cursor:pointer; display:grid; place-items:center; background:transparent; color:var(--ink-3); }
+        .toggle:hover { background:var(--g-100); color:var(--g-800); }
+        .toggle svg { width:20px; height:20px; }
+        .toggle .i-off { display:none; }
+        .toggle[aria-pressed="true"] .i-on { display:none; }
+        .toggle[aria-pressed="true"] .i-off { display:block; }
+
+        .form-actions { display:flex; gap:12px; margin-top:24px; }
+        .form-actions .btn-primary { flex:1; }
+
+        @media (max-width:720px) {
+            .content { padding:18px 16px 56px; }
+            .topbar { padding:0 16px; }
+            h1 { font-size:1.5rem; }
+            .panel { padding:16px; border-radius:18px; }
+            .grid2 { grid-template-columns:minmax(0,1fr); }
+            .form-actions { flex-direction:column-reverse; }
+            .form-actions .btn { width:100%; }
+        }
+        @media (prefers-reduced-motion:reduce) { *, *::before, *::after { transition:none !important; animation:none !important; } }
     </style>
 </head>
 <body>
-    <div class="dashboard-wrapper">
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <h2>🏛️ <?= APP_NAME ?></h2>
-            </div>
-            <nav>
-                <a href="<?= base_url('admin/dashboard') ?>">📊 Dashboard</a>
-                <a href="<?= base_url('admin/users') ?>" class="active">👥 Kelola Pengguna</a>
-                <a href="<?= base_url('admin/nasabah') ?>">🧑 Kelola Nasabah</a>
-                <a href="<?= base_url('admin/bank-sampah') ?>">🏢 Kelola Bank Sampah</a>
-                <a href="<?= base_url('admin/desa') ?>">📍 Kelola Desa</a>
-                <a href="<?= base_url('admin/pengaturan') ?>">⚙️ Pengaturan</a>
-                <a href="<?= base_url('logout') ?>" class="logout">🚪 Logout</a>
-            </nav>
-        </aside>
+    <aside class="sidebar" id="sidebar" aria-label="Menu utama">
+        <div class="brand">
+            <span class="brand-mark"><?= icon('leaf') ?></span>
+            <div><strong><?= $e($appName) ?></strong><small>Administrator</small></div>
+        </div>
+        <nav>
+            <?php foreach ($menu as $m): $isActive = ($m[0] === $menuAktif); ?>
+                <a href="<?= base_url($m[0]) ?>"<?= $isActive ? ' class="active" aria-current="page"' : '' ?>><?= icon($m[2]) ?><span><?= $e($m[1]) ?></span></a>
+            <?php endforeach; ?>
+            <a href="<?= base_url('logout') ?>" class="logout"><?= icon('logout') ?><span>Keluar</span></a>
+        </nav>
+    </aside>
+    <div class="scrim" id="scrim"></div>
 
-        <main class="main-content">
-            <?php if ($flash): ?>
-                <div class="flash flash-<?= $flash['type'] ?>"><?= htmlspecialchars($flash['message']) ?></div>
-            <?php endif; ?>
+    <div class="main">
+        <header class="topbar">
+            <button type="button" class="burger" id="burger" aria-controls="sidebar" aria-expanded="false" aria-label="Buka atau tutup menu"><?= icon('menu') ?></button>
+            <span class="top-title"><?= $e($judul) ?></span>
+            <span class="avatar" title="<?= $e($userName) ?>" aria-hidden="true"><?= $e($userInitial) ?></span>
+        </header>
 
-            <?php if (!empty($errors)): ?>
-                <div class="alert">
-                    <strong>Terjadi kesalahan:</strong>
-                    <ul style="margin: 0.5rem 0 0 1.5rem;">
-                        <?php foreach ($errors as $e): ?>
-                            <li><?= htmlspecialchars($e) ?></li>
-                        <?php endforeach; ?>
-                    </ul>
+        <main class="content">
+            <div class="wrap">
+                <a class="back" href="<?= base_url('admin/users') ?>"><?= icon('arrow-left') ?>Kelola Pengguna</a>
+
+                <div class="page-head">
+                    <h1><?= $e($judul) ?></h1>
+                    <p class="lead"><?= $isEdit ? 'Perbarui data akun pengguna' : 'Buat akun pengguna baru' ?></p>
                 </div>
-            <?php endif; ?>
 
-            <div class="page-header">
-                <h1><?= $isEdit ? '✏️ Edit' : '➕ Tambah' ?> Pengguna</h1>
-                <div class="breadcrumb"><a href="<?= base_url('admin/dashboard') ?>">Dashboard</a> / <a href="<?= base_url('admin/users') ?>">Pengguna</a> / <?= $isEdit ? 'Edit' : 'Tambah' ?></div>
-            </div>
+                <?php if (!empty($flash) && !empty($flash['message'])): ?>
+                    <div class="notice notice-<?= $flashType ?>" role="status"><?= icon($flashIcon) ?><span><?= $e($flash['message']) ?></span></div>
+                <?php endif; ?>
 
-            <div class="card">
-                <div class="card-header"><h3>Form Data Pengguna</h3></div>
-                <div class="card-body">
-                    <form method="POST" action="">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label>Nama Lengkap <span>*</span></label>
-                                <input type="text" name="nama" class="form-control" value="<?= htmlspecialchars($editUser['nama'] ?? '') ?>" required>
+                <?php if (!empty($errors)): ?>
+                    <div class="notice notice-error" role="alert">
+                        <?= icon('alert') ?>
+                        <div>
+                            <strong>Terjadi kesalahan:</strong>
+                            <ul>
+                                <?php foreach ($errors as $err): ?>
+                                    <li><?= $e($err) ?></li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
+                <form method="POST" action="">
+                    <h2 class="sec-title">Identitas</h2>
+                    <div class="panel">
+                        <div class="grid2">
+                            <div class="field full">
+                                <label for="nama" class="label">Nama lengkap <span class="req" aria-hidden="true">*</span></label>
+                                <div class="control">
+                                    <span class="ic"><?= icon('user') ?></span>
+                                    <input type="text" name="nama" id="nama" class="input" value="<?= $e($vNama) ?>" autocomplete="name" required>
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label>No HP <span>*</span></label>
-                                <input type="text" name="no_hp" class="form-control" value="<?= htmlspecialchars($editUser['no_hp'] ?? '') ?>" required>
+                            <div class="field">
+                                <label for="no_hp" class="label">No HP <span class="req" aria-hidden="true">*</span></label>
+                                <div class="control">
+                                    <span class="ic"><?= icon('phone') ?></span>
+                                    <input type="text" name="no_hp" id="no_hp" class="input" value="<?= $e($vHp) ?>" inputmode="tel" autocomplete="tel" placeholder="08xxxxxxxxxx" required>
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label>Email</label>
-                                <input type="email" name="email" class="form-control" value="<?= htmlspecialchars($editUser['email'] ?? '') ?>">
+                            <div class="field">
+                                <label for="email" class="label">Email</label>
+                                <div class="control">
+                                    <span class="ic"><?= icon('mail') ?></span>
+                                    <input type="email" name="email" id="email" class="input" value="<?= $e($vEmail) ?>" autocomplete="email" placeholder="nama@email.com">
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label>Role <span>*</span></label>
-                                <select name="role" class="form-control" required>
+                        </div>
+                    </div>
+
+                    <h2 class="sec-title">Akses</h2>
+                    <div class="panel">
+                        <div class="grid2">
+                            <div class="field">
+                                <label for="role" class="label">Role <span class="req" aria-hidden="true">*</span></label>
+                                <select name="role" id="role" class="input" required>
                                     <option value="">-- Pilih Role --</option>
-                                    <option value="ADMIN" <?= (isset($editUser['role']) && $editUser['role'] === 'ADMIN') ? 'selected' : '' ?>>ADMIN</option>
-                                    <option value="PENGELOLA" <?= (isset($editUser['role']) && $editUser['role'] === 'PENGELOLA') ? 'selected' : '' ?>>PENGELOLA</option>
-                                    <option value="KADES" <?= (isset($editUser['role']) && $editUser['role'] === 'KADES') ? 'selected' : '' ?>>KEPALA DESA</option>
-                                    <option value="NASABAH" <?= (isset($editUser['role']) && $editUser['role'] === 'NASABAH') ? 'selected' : '' ?>>NASABAH</option>
+                                    <?php foreach ($roleOpsi as $val => $lbl): ?>
+                                        <option value="<?= $e($val) ?>"<?= $vRole === $val ? ' selected' : '' ?>><?= $e($lbl) ?></option>
+                                    <?php endforeach; ?>
                                 </select>
                             </div>
-                            <div class="form-group">
-                                <label>Status</label>
-                                <select name="status" class="form-control">
-                                    <option value="AKTIF" <?= (isset($editUser['status']) && $editUser['status'] === 'AKTIF') ? 'selected' : '' ?>>AKTIF</option>
-                                    <option value="NONAKTIF" <?= (isset($editUser['status']) && $editUser['status'] === 'NONAKTIF') ? 'selected' : '' ?>>NONAKTIF</option>
+                            <div class="field">
+                                <label for="status" class="label">Status</label>
+                                <select name="status" id="status" class="input">
+                                    <?php foreach ($statusOpsi as $val => $lbl): ?>
+                                        <option value="<?= $e($val) ?>"<?= $vStatus === $val ? ' selected' : '' ?>><?= $e($lbl) ?></option>
+                                    <?php endforeach; ?>
                                 </select>
                             </div>
-                            <div class="form-group">
-                                <label>Desa</label>
-                                <select name="desa_id" class="form-control">
+                            <div class="field">
+                                <label for="desa_id" class="label">Desa</label>
+                                <select name="desa_id" id="desa_id" class="input">
                                     <option value="">-- Tidak Ada --</option>
                                     <?php foreach ($desas as $d): ?>
-                                        <option value="<?= $d['id'] ?>" <?= (isset($editUser['desa_id']) && $editUser['desa_id'] == $d['id']) ? 'selected' : '' ?>><?= htmlspecialchars($d['nama']) ?></option>
+                                        <option value="<?= $e($d['id']) ?>"<?= ($vDesa !== '' && $vDesa === (string) $d['id']) ? ' selected' : '' ?>><?= $e($d['nama']) ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-                            <div class="form-group">
-                                <label>Bank Sampah</label>
-                                <select name="bank_sampah_id" class="form-control">
+                            <div class="field">
+                                <label for="bank_sampah_id" class="label">Bank sampah</label>
+                                <select name="bank_sampah_id" id="bank_sampah_id" class="input">
                                     <option value="">-- Tidak Ada --</option>
                                     <?php foreach ($banks as $b): ?>
-                                        <option value="<?= $b['id'] ?>" <?= (isset($editUser['bank_sampah_id']) && $editUser['bank_sampah_id'] == $b['id']) ? 'selected' : '' ?>><?= htmlspecialchars($b['nama']) ?></option>
+                                        <option value="<?= $e($b['id']) ?>"<?= ($vBank !== '' && $vBank === (string) $b['id']) ? ' selected' : '' ?>><?= $e($b['nama']) ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-                            <div class="form-group full">
-                                <label>Password <?= $isEdit ? '(kosongkan jika tidak diubah)' : '<span>*</span>' ?></label>
-                                <input type="password" name="password" class="form-control" <?= $isEdit ? '' : 'required' ?>>
+                        </div>
+                    </div>
+
+                    <h2 class="sec-title">Keamanan</h2>
+                    <div class="panel">
+                        <div class="field">
+                            <label for="password" class="label">Kata sandi <?= $isEdit ? '' : '<span class="req" aria-hidden="true">*</span>' ?></label>
+                            <div class="control">
+                                <span class="ic"><?= icon('lock') ?></span>
+                                <input type="password" name="password" id="password" class="input has-toggle" autocomplete="new-password"<?= $isEdit ? '' : ' required' ?>>
+                                <button type="button" class="toggle" id="togglePw" aria-pressed="false" aria-label="Tampilkan kata sandi" aria-controls="password">
+                                    <span class="i-on"><?= icon('eye') ?></span>
+                                    <span class="i-off"><?= icon('eye-off') ?></span>
+                                </button>
                             </div>
+                            <?php if ($isEdit): ?><p class="hint">Kosongkan jika tidak diubah.</p><?php endif; ?>
                         </div>
-                        <div class="form-actions">
-                            <button type="submit" class="btn btn-primary">💾 Simpan</button>
-                            <a href="<?= base_url('admin/users') ?>" class="btn btn-secondary">Batal</a>
-                        </div>
-                    </form>
-                </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Simpan</button>
+                        <a href="<?= base_url('admin/users') ?>" class="btn btn-ghost">Batal</a>
+                    </div>
+                </form>
             </div>
         </main>
     </div>
+
+    <script>
+    (function () {
+        var root = document.documentElement;
+        var burger = document.getElementById('burger');
+        var scrim = document.getElementById('scrim');
+        var mq = window.matchMedia('(min-width:1101px)');
+
+        function setNav(open, save) {
+            root.classList.toggle('nav-open', open);
+            burger.setAttribute('aria-expanded', open ? 'true' : 'false');
+            if (save && mq.matches) {
+                try { localStorage.setItem('nav', open ? 'open' : 'closed'); } catch (e) {}
+            }
+        }
+        function initial() {
+            var s = null;
+            try { s = localStorage.getItem('nav'); } catch (e) {}
+            setNav(mq.matches && s !== 'closed', false);
+        }
+        initial();
+        window.requestAnimationFrame(function () { root.classList.remove('no-anim'); });
+
+        burger.addEventListener('click', function () { setNav(!root.classList.contains('nav-open'), true); });
+        scrim.addEventListener('click', function () { setNav(false, false); });
+        document.addEventListener('keydown', function (ev) {
+            if (ev.key === 'Escape' && !mq.matches && root.classList.contains('nav-open')) {
+                setNav(false, false);
+                burger.focus();
+            }
+        });
+        if (mq.addEventListener) { mq.addEventListener('change', initial); } else if (mq.addListener) { mq.addListener(initial); }
+
+        /* Tampilkan / sembunyikan kata sandi */
+        var tg = document.getElementById('togglePw');
+        var pw = document.getElementById('password');
+        if (tg && pw) {
+            tg.addEventListener('click', function () {
+                var show = pw.type === 'password';
+                pw.type = show ? 'text' : 'password';
+                tg.setAttribute('aria-pressed', show ? 'true' : 'false');
+                tg.setAttribute('aria-label', show ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi');
+            });
+        }
+    })();
+    </script>
 </body>
 </html>

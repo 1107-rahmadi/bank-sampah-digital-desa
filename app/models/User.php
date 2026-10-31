@@ -102,6 +102,36 @@ class User
     }
 
     /**
+     * Buat user baru dan kembalikan id-nya.
+     *
+     * Dipakai ketika id user dibutuhkan segera setelah pembuatan,
+     * misalnya untuk menautkannya ke baris nasabah.
+     *
+     * @param array $data
+     * @return int|false Id user, atau false bila gagal
+     */
+    public function createDenganId(array $data)
+    {
+        $stmt = $this->db->prepare("
+            INSERT INTO users (nama, no_hp, email, password_hash, role, status, desa_id, bank_sampah_id)
+            VALUES (:nama, :no_hp, :email, :password_hash, :role, :status, :desa_id, :bank_sampah_id)
+        ");
+
+        $ok = $stmt->execute([
+            'nama' => $data['nama'],
+            'no_hp' => $data['no_hp'],
+            'email' => $data['email'] ?? null,
+            'password_hash' => $data['password_hash'],
+            'role' => $data['role'] ?? 'NASABAH',
+            'status' => $data['status'] ?? 'AKTIF',
+            'desa_id' => $data['desa_id'] ?? null,
+            'bank_sampah_id' => $data['bank_sampah_id'] ?? null,
+        ]);
+
+        return $ok ? (int) $this->db->lastInsertId() : false;
+    }
+
+    /**
      * Buat user baru
      *
      * @param array $data

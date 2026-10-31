@@ -1,131 +1,267 @@
 <?php
-function formatRupiah($n): string { return 'Rp ' . number_format($n, 0, ',', '.'); }
-$user = currentUser();
+/**
+ * pengelola/transaksi_beli/index.php
+ * Daftar Transaksi Beli (Pengelola).
+ *
+ * Compatible dengan PHP 7.3+
+ *
+ * @var array|null $flash
+ * @var array      $stats        total_transaksi, total_berat, total_nilai
+ *                               (query harus mengecualikan transaksi berstatus BATAL)
+ * @var string     $tanggalFrom
+ * @var string     $tanggalTo
+ * @var array      $transaksis   tiap item: id, no_transaksi, tanggal, nasabah_nama,
+ *                               nama_penjual, tipe_penjual (NASABAH|NON_NASABAH),
+ *                               metode_bayar (TABUNG|TUNAI), total_berat, total_nilai,
+ *                               status (SAH|BATAL)
+ * @var int|null   $halaman       (opsional) halaman saat ini, mulai dari 1
+ * @var int|null   $totalHalaman  (opsional) jumlah halaman; pager tampil bila lebih dari 1
+ */
+
+require_once VIEW_PATH . '/pengelola/partials/ui.php';
+
+$menuAktif = 'pengelola/transaksi-beli';
+$judulHalaman = 'Transaksi Beli';
+
+$e = function ($v) {
+    return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+};
+
+$stats = isset($stats) && is_array($stats) ? $stats : [];
+$transaksis = isset($transaksis) && is_array($transaksis) ? $transaksis : [];
+$tanggalFrom = isset($tanggalFrom) ? (string) $tanggalFrom : '';
+$tanggalTo = isset($tanggalTo) ? (string) $tanggalTo : '';
+$halaman = isset($halaman) ? max(1, (int) $halaman) : 1;
+$totalHalaman = isset($totalHalaman) ? max(1, (int) $totalHalaman) : 1;
+$hariIni = date('Y-m-d');
+
+$totalTransaksi = (float) ($stats['total_transaksi'] ?? 0);
+$totalBerat = (float) ($stats['total_berat'] ?? 0);
+$totalNilai = (float) ($stats['total_nilai'] ?? 0);
+
+$adaFilter = ($tanggalFrom !== '' || $tanggalTo !== '');
+
+// Format tanggal hanya dipanggil bila ada isinya.
+$dari = $tanggalFrom !== '' ? (string) tanggalSingkatIndonesia($tanggalFrom) : '';
+$sampai = $tanggalTo !== '' ? (string) tanggalSingkatIndonesia($tanggalTo) : '';
+if ($dari !== '' && $sampai !== '') {
+    $subJudul = $dari . ' sampai ' . $sampai;
+} elseif ($dari !== '') {
+    $subJudul = 'Sejak ' . $dari;
+} elseif ($sampai !== '') {
+    $subJudul = 'Sampai ' . $sampai;
+} else {
+    $subJudul = 'Setoran sampah dari warga';
+}
+
+/* Alamat halaman tertentu dengan filter tanggal tetap terbawa. */
+$urlHalaman = function ($p) use ($tanggalFrom, $tanggalTo) {
+    $q = [];
+    if ($tanggalFrom !== '') {
+        $q['tanggal_from'] = $tanggalFrom;
+    }
+    if ($tanggalTo !== '') {
+        $q['tanggal_to'] = $tanggalTo;
+    }
+    $q['page'] = (int) $p;
+    return base_url('pengelola/transaksi-beli') . '?' . http_build_query($q);
+};
+
+/* Kelas dan ikon notice: pakai bawaan ui.php bila ada, kalau tidak pakai nilai aman. */
+$noticeClass = isset($flashClass) && $flashClass !== '' ? $flashClass : 'info';
+$noticeIcon = isset($flashIcon) && $flashIcon !== '' ? $flashIcon : 'info';
+
+/*
+ * Kelompokkan per tanggal. Data dari server sudah urut terbaru lebih dulu,
+ * jadi urutannya tetap terjaga.
+ */
+$grup = [];
+foreach ($transaksis as $t) {
+    $ts = isset($t['tanggal']) ? strtotime((string) $t['tanggal']) : false;
+    if ($ts) {
+        $kunci = date('Y-m-d', $ts);
+        $label = (string) tanggalSingkatIndonesia($kunci);
+        $jam = date('H:i', $ts);
+    } else {
+        $kunci = 'tanpa-tanggal';
+        $label = 'Tanggal tidak diketahui';
+        $jam = '-';
+    }
+    if (!isset($grup[$kunci])) {
+        $grup[$kunci] = ['label' => $label, 'items' => []];
+    }
+    $t['_jam'] = $jam;
+    $grup[$kunci]['items'][] = $t;
+}
 ?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Transaksi Beli - <?= APP_NAME ?></title>
+    <?= pengelolaHead($judulHalaman) ?>
     <style>
-        * { box-sizing: border-box; }
-        body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #f5f7fa; }
-        .dashboard-wrapper { display: flex; min-height: 100vh; }
-        .sidebar { width: 260px; background: linear-gradient(180deg, #1565c0, #1976d2); color: white; flex-shrink: 0; }
-        .sidebar-header { padding: 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .sidebar-header h2 { margin: 0; font-size: 1.1rem; }
-        .sidebar nav a { display: flex; align-items: center; gap: 10px; color: rgba(255,255,255,0.8); text-decoration: none; padding: 0.875rem 1.5rem; border-left: 3px solid transparent; }
-        .sidebar nav a:hover, .sidebar nav a.active { background: rgba(255,255,255,0.15); color: white; border-left-color: #90caf9; }
-        .sidebar nav a.logout { margin-top: 2rem; color: #ffcdd2; }
-        .main-content { flex: 1; padding: 2rem; }
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
-        .page-header h1 { margin: 0; font-size: 1.5rem; color: #1565c0; }
-        .breadcrumb { color: #888; font-size: 0.9rem; }
-        .breadcrumb a { color: #1565c0; text-decoration: none; }
-        .flash { padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
-        .flash-success { background: #d4edda; color: #155724; }
-        .card { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-        .card-header { padding: 1rem 1.5rem; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; }
-        .card-header h3 { margin: 0; font-size: 1rem; }
-        .stats-row { display: flex; gap: 1rem; padding: 1rem 1.5rem; background: #f8f9fa; }
-        .stat-item { text-align: center; }
-        .stat-item h4 { margin: 0; font-size: 1.25rem; color: #1565c0; }
-        .stat-item p { margin: 0; font-size: 0.8rem; color: #888; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 0.875rem 1rem; text-align: left; border-bottom: 1px solid #eee; }
-        th { background: #f8f9fa; font-size: 0.8rem; color: #888; text-transform: uppercase; }
-        .btn { padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.5rem; }
-        .btn-primary { background: #1565c0; color: white; }
-        .btn-primary:hover { background: #0d47a1; }
-        .badge { padding: 0.25rem 0.5rem; border-radius: 20px; font-size: 0.7rem; font-weight: 600; }
-        .badge-success { background: #e8f5e9; color: #2e7d32; }
-        .badge-warning { background: #fff3e0; color: #f57c00; }
-        .badge-info { background: #e3f2fd; color: #1565c0; }
-        .filter-form { display: flex; gap: 1rem; padding: 1rem 1.5rem; background: #f8f9fa; }
-        .filter-form input, .filter-form button { padding: 0.5rem; border-radius: 6px; border: 1px solid #ddd; }
-        .filter-form button { background: #1565c0; color: white; cursor: pointer; }
+        /* Gaya khusus halaman daftar transaksi beli. */
+        .filter { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto; gap: 14px; align-items: end; margin-bottom: 20px; }
+        .wallet-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 20px; }
+        .split { padding: 12px 16px; border-radius: 16px; background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .18); }
+        .split-label { font-size: .875rem; color: rgba(255, 255, 255, .92); }
+        .split-value { margin-top: 2px; font-size: 1.1875rem; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+
+        /* Transaksi yang dibatalkan tidak boleh terlihat seperti transaksi sah. */
+        .row-amount--batal { text-decoration: line-through; color: var(--ink-3); }
+
+        .pager { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; margin-top: 24px; }
+        .pager-info { font-size: .9375rem; font-weight: 600; color: var(--ink-3); }
+
+        @media (max-width: 1100px) {
+            .filter { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .filter .btn { grid-column: 1 / -1; }
+        }
+        @media (max-width: 560px) {
+            .filter { grid-template-columns: minmax(0, 1fr); }
+            .wallet-split { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+        }
     </style>
 </head>
 <body>
-    <div class="dashboard-wrapper">
-        <aside class="sidebar">
-            <div class="sidebar-header"><h2>📦 <?= APP_NAME ?></h2></div>
-            <nav>
-                <a href="<?= base_url('pengelola/dashboard') ?>">📊 Dashboard</a>
-                <a href="<?= base_url('pengelola/transaksi-beli') ?>" class="active">🛒 Transaksi Beli</a>
-                <a href="<?= base_url('pengelola/transaksi-jual') ?>">📤 Transaksi Jual</a>
-                <a href="<?= base_url('pengelola/kategori') ?>">📦 Kategori</a>
-                <a href="<?= base_url('pengelola/harga') ?>">💰 Harga</a>
-                <a href="<?= base_url('pengelola/nasabah') ?>">👥 Nasabah</a>
-                <a href="<?= base_url('pengelola/pengepul') ?>">🚛 Pengepul</a>
-                <a href="<?= base_url('logout') ?>" class="logout">🚪 Logout</a>
-            </nav>
-        </aside>
+    <?php include VIEW_PATH . '/pengelola/partials/sidebar.php'; ?>
+    <div class="scrim" id="scrim"></div>
 
-        <main class="main-content">
-            <?php if ($flash): ?>
-                <div class="flash flash-<?= $flash['type'] ?>"><?= htmlspecialchars($flash['message']) ?></div>
-            <?php endif; ?>
+    <div class="main">
+        <?php include VIEW_PATH . '/pengelola/partials/topbar.php'; ?>
 
-            <div class="page-header">
-                <div>
-                    <h1>🛒 Transaksi Beli (Setoran Sampah)</h1>
-                    <div class="breadcrumb"><a href="<?= base_url('pengelola/dashboard') ?>">Dashboard</a> / Transaksi Beli</div>
-                </div>
-                <a href="<?= base_url('pengelola/transaksi-beli/add') ?>" class="btn btn-primary">➕ Transaksi Baru</a>
-            </div>
+        <main class="content">
+            <div class="wrap">
+                <a class="back" href="<?= base_url('pengelola/dashboard') ?>"><?= icon('arrow-left') ?>Dashboard</a>
 
-            <div class="card">
-                <div class="stats-row">
-                    <div class="stat-item"><h4><?= number_format($stats['total_transaksi'] ?? 0) ?></h4><p>Total Transaksi</p></div>
-                    <div class="stat-item"><h4><?= number_format($stats['total_berat'] ?? 0, 1) ?> kg</h4><p>Total Berat</p></div>
-                    <div class="stat-item"><h4><?= formatRupiah($stats['total_nilai'] ?? 0) ?></h4><p>Total Nilai</p></div>
+                <?php if (!empty($flash) && !empty($flash['message'])): ?>
+                    <div class="notice notice-<?= $e($noticeClass) ?>" role="status">
+                        <?= icon($noticeIcon) ?><span><?= $e($flash['message']) ?></span>
+                    </div>
+                <?php endif; ?>
+
+                <div class="page-head">
+                    <div>
+                        <h1>Transaksi Beli</h1>
+                        <p class="lead"><?= $e($subJudul) ?></p>
+                    </div>
+                    <a class="btn btn-primary" href="<?= base_url('pengelola/transaksi-beli/add') ?>"><?= icon('plus') ?>Transaksi Baru</a>
                 </div>
 
-                <form method="GET" class="filter-form">
-                    <input type="date" name="tanggal_from" value="<?= $tanggalFrom ?? '' ?>">
-                    <span>s/d</span>
-                    <input type="date" name="tanggal_to" value="<?= $tanggalTo ?? '' ?>">
-                    <button type="submit">🔍 Filter</button>
+                <section class="wallet" aria-label="Ringkasan transaksi beli">
+                    <span class="wallet-label"><?= icon('wallet') ?>Total nilai pembelian</span>
+                    <p class="wallet-value"><?= $e(formatRupiah($totalNilai)) ?></p>
+
+                    <div class="wallet-split">
+                        <div class="split">
+                            <div class="split-label">Total transaksi</div>
+                            <div class="split-value"><?= $e(number_format($totalTransaksi, 0, ',', '.')) ?></div>
+                        </div>
+                        <div class="split">
+                            <div class="split-label">Total berat</div>
+                            <div class="split-value"><?= $e(formatBeratKg($totalBerat)) ?></div>
+                        </div>
+                    </div>
+                </section>
+
+                <form method="GET" class="filter" aria-label="Filter tanggal">
+                    <div>
+                        <label class="label" for="tanggal_from">Dari tanggal</label>
+                        <input class="input" type="date" name="tanggal_from" id="tanggal_from" value="<?= $e($tanggalFrom) ?>" max="<?= $e($tanggalTo !== '' ? $tanggalTo : $hariIni) ?>">
+                    </div>
+                    <div>
+                        <label class="label" for="tanggal_to">Sampai tanggal</label>
+                        <input class="input" type="date" name="tanggal_to" id="tanggal_to" value="<?= $e($tanggalTo) ?>"<?= $tanggalFrom !== '' ? ' min="' . $e($tanggalFrom) . '"' : '' ?> max="<?= $e($hariIni) ?>">
+                    </div>
+                    <button type="submit" class="btn btn-primary"><?= icon('search') ?>Tampilkan</button>
+                    <?php if ($adaFilter): ?>
+                        <a href="<?= base_url('pengelola/transaksi-beli') ?>" class="btn btn-ghost">Hapus filter</a>
+                    <?php endif; ?>
                 </form>
 
-                <table>
-                    <thead>
-                        <tr>
-                            <th>No Transaksi</th>
-                            <th>Tanggal</th>
-                            <th>Penjual</th>
-                            <th>Metode</th>
-                            <th>Berat</th>
-                            <th>Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($transaksis as $t): ?>
-                            <tr>
-                                <td><strong><?= htmlspecialchars($t['no_transaksi']) ?></strong></td>
-                                <td><?= date('d/m/Y H:i', strtotime($t['tanggal'])) ?></td>
-                                <td>
-                                    <?= htmlspecialchars($t['nasabah_nama'] ?? $t['nama_penjual'] ?? '-') ?>
-                                    <?php if ($t['tipe_penjual'] === 'NASABAH'): ?>
-                                        <span class="badge badge-success">NASABAH</span>
-                                    <?php else: ?>
-                                        <span class="badge badge-warning">NON-NASABAH</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td><span class="badge badge-<?= $t['metode_bayar'] === 'TABUNG' ? 'info' : 'warning' ?>"><?= $t['metode_bayar'] ?></span></td>
-                                <td><?= number_format($t['total_berat'], 1) ?> kg</td>
-                                <td><strong><?= formatRupiah($t['total_nilai']) ?></strong></td>
-                            </tr>
-                        <?php endforeach; ?>
-                        <?php if (empty($transaksis)): ?>
-                            <tr><td colspan="6" style="text-align:center;color:#888;padding:2rem;">Belum ada transaksi</td></tr>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
+                <?php if (!empty($grup)): ?>
+                    <?php foreach ($grup as $g): ?>
+                        <h2 class="group-label"><?= $e($g['label']) ?></h2>
+                        <ul class="list">
+                            <?php foreach ($g['items'] as $t):
+                                $isNasabah = (string) ($t['tipe_penjual'] ?? '') === 'NASABAH';
+                                $namaPenjual = trim((string) ($isNasabah ? ($t['nasabah_nama'] ?? '') : ($t['nama_penjual'] ?? '')));
+                                if ($namaPenjual === '') {
+                                    $namaPenjual = $isNasabah ? 'Nasabah tanpa nama' : 'Tanpa nama';
+                                }
+                                $metode = strtoupper((string) ($t['metode_bayar'] ?? ''));
+                                $metodeLabel = $metode === 'TABUNG' ? 'Masuk tabungan' : ($metode === 'TUNAI' ? 'Dibayar tunai' : '');
+                                $batal = strtoupper((string) ($t['status'] ?? 'SAH')) === 'BATAL';
+                            ?>
+                                <li class="row">
+                                    <span class="ico" aria-hidden="true"><?= icon('cart') ?></span>
+                                    <span class="row-main">
+                                        <span class="row-title row-title--wrap">
+                                            <a href="<?= base_url('pengelola/transaksi-beli/detail?id=' . (int) ($t['id'] ?? 0)) ?>"><?= $e($namaPenjual) ?></a>
+                                            <?php if ($isNasabah): ?>
+                                                <span class="badge badge--success">Nasabah</span>
+                                            <?php else: ?>
+                                                <span class="badge badge--neutral">Non-nasabah</span>
+                                            <?php endif; ?>
+                                        </span>
+                                        <span class="row-sub">
+                                            <span><?= $e($t['no_transaksi'] ?? '-') ?></span>
+                                            <span><?= $e($t['_jam'] ?? '-') ?></span>
+                                            <span><?= $e(formatBeratKg($t['total_berat'] ?? 0)) ?></span>
+                                        </span>
+                                    </span>
+                                    <span class="row-end">
+                                        <span class="row-amount<?= $batal ? ' row-amount--batal' : '' ?>"><?= $e(formatRupiah($t['total_nilai'] ?? 0)) ?></span>
+                                        <?php if ($batal): ?>
+                                            <span class="badge badge--danger">Dibatalkan</span>
+                                        <?php elseif ($metodeLabel !== ''): ?>
+                                            <span class="badge badge--<?= $metode === 'TABUNG' ? 'info' : 'warning' ?>"><?= $e($metodeLabel) ?></span>
+                                        <?php endif; ?>
+                                    </span>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endforeach; ?>
+
+                    <?php if ($totalHalaman > 1): ?>
+                        <nav class="pager" aria-label="Halaman daftar transaksi">
+                            <?php if ($halaman > 1): ?>
+                                <a class="btn btn-ghost" href="<?= $e($urlHalaman($halaman - 1)) ?>">Sebelumnya</a>
+                            <?php endif; ?>
+                            <span class="pager-info">Halaman <?= (int) $halaman ?> dari <?= (int) $totalHalaman ?></span>
+                            <?php if ($halaman < $totalHalaman): ?>
+                                <a class="btn btn-ghost" href="<?= $e($urlHalaman($halaman + 1)) ?>">Selanjutnya</a>
+                            <?php endif; ?>
+                        </nav>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <div class="empty">
+                        <span class="ico" aria-hidden="true"><?= icon('inbox') ?></span>
+                        <h2>Belum ada transaksi</h2>
+                        <p><?= $adaFilter
+                            ? 'Tidak ada transaksi pada rentang tanggal ini.'
+                            : 'Transaksi beli yang dicatat akan muncul di sini.' ?></p>
+                    </div>
+                <?php endif; ?>
             </div>
         </main>
     </div>
+
+    <?= pengelolaScripts() ?>
+    <script>
+    /* Rentang tanggal filter: batas bawah dan atas saling menyesuaikan. */
+    (function () {
+        var from = document.getElementById('tanggal_from');
+        var to = document.getElementById('tanggal_to');
+        var hariIni = <?= json_encode($hariIni) ?>;
+        if (!from || !to) { return; }
+        function sinkron() {
+            to.min = from.value || '';
+            from.max = to.value || hariIni;
+        }
+        from.addEventListener('change', sinkron);
+        to.addEventListener('change', sinkron);
+        sinkron();
+    })();
+    </script>
 </body>
 </html>

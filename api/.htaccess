@@ -1,0 +1,12 @@
+RewriteEngine On
+
+# Teruskan header Authorization ke PHP (Apache sering membuangnya)
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+
+# Jika file atau direktori ada, jangan rewrite
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Arahkan endpoint API ke router di folder ini
+RewriteRule ^ index.php [QSA,L]

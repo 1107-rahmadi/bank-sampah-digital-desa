@@ -1,4 +1,5 @@
 <?php
+//kategori/index.php
 $user = currentUser();
 ?>
 <!DOCTYPE html>

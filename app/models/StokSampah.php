@@ -55,6 +55,43 @@ class StokSampah
     }
 
     /**
+     * Stok dalam satuan sen-kg (tanpa float), untuk perhitungan di server.
+     *
+     * @param int $bankSampahId
+     * @param int $kategoriId
+     * @return int
+     */
+    public function getStokCents($bankSampahId, $kategoriId): int
+    {
+        $stmt = $this->db->prepare("
+            SELECT berat_kg FROM stok_sampah
+            WHERE bank_sampah_id = :bank_id AND kategori_id = :kategori_id
+            LIMIT 1
+        ");
+        $stmt->execute(['bank_id' => $bankSampahId, 'kategori_id' => $kategoriId]);
+        $result = $stmt->fetch();
+
+        return $result ? (int) toCents($result['berat_kg']) : 0;
+    }
+
+    /**
+     * Stok yang benar-benar bisa dijual: stok fisik dikurangi barang yang
+     * sudah dipesan ke pengepul tetapi belum dibayar (piutang berjalan).
+     *
+     * @param int   $bankSampahId
+     * @param int   $kategoriId
+     * @param array $reserved  peta kategori_id => berat (sen-kg)
+     * @return int
+     */
+    public function getStokTersediaCents($bankSampahId, $kategoriId, array $reserved = []): int
+    {
+        $stok = $this->getStokCents($bankSampahId, $kategoriId);
+
+        return max(0, $stok - (int) ($reserved[(int) $kategoriId] ?? 0));
+    }
+
+
+    /**
      * Tambah stok
      *
      * @param int $bankSampahId

@@ -231,3 +231,62 @@ function getRoleDisplayName($role): string
 
     return $names[strtoupper($role ?? '')] ?? 'Unknown';
 }
+
+/**
+ * Token CSRF untuk session ini.
+ *
+ * Token dibuat satu kali per session dan dipakai pada semua form POST.
+ *
+ * @return string
+ */
+function csrfToken(): string
+{
+    if (empty($_SESSION['csrf_token']) || !is_string($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+
+    return $_SESSION['csrf_token'];
+}
+
+/**
+ * Input hidden untuk menyisipkan token CSRF ke dalam form.
+ *
+ * @return string
+ */
+function csrfField(): string
+{
+    return '<input type="hidden" name="_token" value="' . htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') . '">';
+}
+
+/**
+ * Periksa token CSRF pada request POST.
+ * Request ditolak (403) bila token tidak ada atau tidak cocok.
+ *
+ * @return void
+ */
+function verifyCsrf(): void
+{
+    $token = $_POST['_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+
+    if (!is_string($token) || $token === '' || empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $token)) {
+        http_response_code(403);
+        setFlashMessage('error', 'Sesi formulir tidak valid atau sudah kedaluwarsa. Silakan muat ulang halaman dan coba lagi.');
+        redirect('dashboard');
+    }
+}
+
+/**
+ * Pastikan request memakai metode POST.
+ *
+ * @param string $redirectTo Halaman tujuan bila method tidak sesuai
+ * @return void
+ */
+function requirePost(string $redirectTo = 'dashboard'): void
+{
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        http_response_code(405);
+        setFlashMessage('error', 'Permintaan tidak valid. Gunakan tombol pada halaman daftar.');
+        redirect($redirectTo);
+    }
+}
+

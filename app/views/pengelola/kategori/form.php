@@ -1,4 +1,5 @@
 <?php
+//kategori/form.php
 $isEdit = isset($editKategori) && $editKategori;
 $user = currentUser();
 ?>
@@ -38,14 +39,7 @@ $user = currentUser();
 </head>
 <body>
     <div class="dashboard-wrapper">
-        <aside class="sidebar">
-            <div class="sidebar-header"><h2>📦 <?= APP_NAME ?></h2></div>
-            <nav>
-                <a href="<?= base_url('pengelola/dashboard') ?>">📊 Dashboard</a>
-                <a href="<?= base_url('pengelola/kategori') ?>">📦 Kategori</a>
-                <a href="<?= base_url('logout') ?>">🚪 Logout</a>
-            </nav>
-        </aside>
+        <?php include VIEW_PATH . '/pengelola/partials/sidebar.php'; ?>
 
         <main class="main-content">
             <?php if (!empty($errors)): ?>
