@@ -4,9 +4,11 @@
  *
  * Compatible dengan PHP 7.3+
  *
+ * BR-09: halaman ini tidak menampilkan nama, NIK, atau nomor HP warga.
+ * Pembelian hanya diberi keterangan jenis penjual (nasabah / bukan nasabah).
+ *
  * @var array $recentTrans  tiap item: tanggal, jenis (BELI|JUAL), bank_nama,
- *                          nasabah_nama, nama_penjual, tipe_penjual,
- *                          pengepul_nama, total_nilai
+ *                          tipe_penjual, pengepul_nama, total_nilai
  */
 
 if (!function_exists('formatRupiah')) {
@@ -249,11 +251,6 @@ body.nav-open .burger-bar:nth-child(3) { transform: translateY(-8.5px) rotate(-4
 }
 .badge-beli { background: var(--g-100); color: var(--g-800); }
 .badge-jual { background: var(--sky-bg); color: var(--sky); }
-.tag {
-    display: inline-block; margin-left: .375rem; padding: .0625rem .5rem; border-radius: 999px;
-    font-size: .75rem; font-weight: 600; vertical-align: 1px;
-    background: var(--g-50); color: var(--g-700); border: 1px solid var(--g-200);
-}
 
 .empty { text-align: center; padding: 2.5rem 1rem; background: var(--card); border: 1px solid var(--line); border-radius: 20px; }
 .empty-ico {
@@ -360,21 +357,20 @@ if (window.__navOpen) { document.body.classList.add('nav-open'); }
                         <?php
                         $isBeli = (isset($t['jenis']) && $t['jenis'] === 'BELI');
                         if ($isBeli) {
-                            $ket = (string) ($t['nasabah_nama'] ?? $t['nama_penjual'] ?? '-');
-                            $adaTagNasabah = (isset($t['tipe_penjual']) && $t['tipe_penjual'] === 'NASABAH');
+                            // BR-09: tanpa nama warga, hanya jenis penjual
+                            $ket = (isset($t['tipe_penjual']) && $t['tipe_penjual'] === 'NASABAH')
+                                ? 'Pembelian dari nasabah'
+                                : 'Pembelian dari warga (bukan nasabah)';
                         } else {
+                            // Pengepul adalah mitra usaha, bukan data pribadi warga
                             $ket = (string) ($t['pengepul_nama'] ?? '-');
-                            $adaTagNasabah = false;
                         }
                         $bank = (string) ($t['bank_nama'] ?? '-');
                         ?>
                         <div class="row">
                             <span class="row-ico <?= $isBeli ? 'beli' : 'jual' ?>" aria-hidden="true"><?= icon($isBeli ? 'cart' : 'send') ?></span>
                             <span class="row-body">
-                                <span class="row-title">
-                                    <?= htmlspecialchars($ket) ?>
-                                    <?php if ($adaTagNasabah): ?><span class="tag">Nasabah</span><?php endif; ?>
-                                </span>
+                                <span class="row-title"><?= htmlspecialchars($ket) ?></span>
                                 <span class="row-sub"><?= htmlspecialchars($bank) ?> &middot; <?= htmlspecialchars($t['_jam']) ?></span>
                             </span>
                             <span class="row-end">

@@ -25,6 +25,12 @@
  * Data dimuat sendiri oleh file ini (model Notifikasi + currentUserId()),
  * jadi controller tidak perlu mengirim variabel apa pun.
  *
+ * ATURAN ANGKA MERAH (BADGE) PADA LONCENG:
+ * Angka hanya menghitung notifikasi yang belum pernah "dilihat". Begitu lonceng
+ * diklik, angka langsung hilang dan waktu notifikasi terbaru disimpan di cookie
+ * milik nasabah tersebut (nt_lihat_<id>). Angka baru muncul lagi hanya bila ada
+ * notifikasi yang lebih baru dari penanda itu.
+ *
  * ATURAN POP-UP:
  * Pop-up hanya muncul untuk notifikasi pencairan yang BELUM DIBACA
  * (diajukan, disetujui, ditolak, dicairkan). Begitu pop-up tampil,
@@ -97,14 +103,15 @@ if (!function_exists('notifLayakPopup')) {
     /**
      * Hanya notifikasi pencairan yang tampil sebagai pop-up:
      * saat nasabah mengajukan, dan saat pengelola menyetujui,
-     * menolak, atau mencairkan. Tipe lain hanya masuk ke lonceng.
+     * menolak, mencairkan, atau membatalkan pengajuannya. Tipe lain
+     * hanya masuk ke lonceng.
      *
      * @param string|null $tipe
      */
     function notifLayakPopup($tipe): bool
     {
         $t = strtoupper((string) $tipe);
-        foreach (['DIAJUKAN', 'DISETUJUI', 'DITOLAK', 'DICAIRKAN'] as $kata) {
+        foreach (['DIAJUKAN', 'DISETUJUI', 'DITOLAK', 'DICAIRKAN', 'DIBATALKAN'] as $kata) {
             if (strpos($t, $kata) !== false) {
                 return true;
             }
@@ -142,11 +149,23 @@ if (!function_exists('notifWaktuRelatif')) {
     }
 }
 
+if (!function_exists('notifNamaCookie')) {
+    /**
+     * Nama cookie penanda "sudah dilihat", dibedakan per nasabah supaya
+     * akun lain di browser yang sama tidak ikut menyembunyikan angka.
+     */
+    function notifNamaCookie(int $userId): string
+    {
+        return $userId > 0 ? 'nt_lihat_' . $userId : 'nt_lihat';
+    }
+}
+
 if (!function_exists('notifData')) {
     /**
      * Muat notifikasi milik nasabah yang sedang login (sekali per permintaan).
      *
-     * @return array ['daftar' => array, 'belumDibaca' => int, 'toast' => array|null]
+     * @return array ['daftar' => array, 'belumDibaca' => int, 'toast' => array|null,
+     *                'terbaruTs' => int, 'namaCookie' => string]
      */
     function notifData(): array
     {
@@ -157,6 +176,7 @@ if (!function_exists('notifData')) {
 
         $daftar = [];
         $belumDibaca = 0;
+        $userId = 0;
 
         try {
             require_once MODEL_PATH . '/Notifikasi.php';
@@ -170,6 +190,29 @@ if (!function_exists('notifData')) {
             error_log('[notifikasi] gagal memuat: ' . $e->getMessage());
             $daftar = [];
             $belumDibaca = 0;
+        }
+
+        // Penanda "sudah dilihat": saat lonceng diklik, browser menyimpan waktu
+        // notifikasi terbaru di cookie (per nasabah). Angka merah hanya menghitung
+        // notifikasi yang lebih baru dari penanda itu, jadi hilang setelah lonceng
+        // dibuka dan muncul lagi hanya bila ada notifikasi baru.
+        $namaCookie = notifNamaCookie($userId);
+        $terbaruTs = 0;
+        foreach ($daftar as $n) {
+            $ts = (int) strtotime((string) ($n['created_at'] ?? ''));
+            if ($ts > $terbaruTs) {
+                $terbaruTs = $ts;
+            }
+        }
+        $lihatTs = isset($_COOKIE[$namaCookie]) ? (int) $_COOKIE[$namaCookie] : 0;
+        if ($lihatTs > 0) {
+            $belumDilihat = 0;
+            foreach ($daftar as $n) {
+                if (empty($n['dibaca_at']) && (int) strtotime((string) ($n['created_at'] ?? '')) > $lihatTs) {
+                    $belumDilihat++;
+                }
+            }
+            $belumDibaca = $belumDilihat;
         }
 
         // Pop-up: notifikasi pencairan belum dibaca yang paling baru, dan
@@ -188,6 +231,9 @@ if (!function_exists('notifData')) {
             if (!empty($n['dibaca_at']) || !notifLayakPopup($n['tipe'] ?? '')) {
                 continue;
             }
+            if ($lihatTs > 0 && (int) strtotime((string) ($n['created_at'] ?? '')) <= $lihatTs) {
+                continue; // sudah dilihat lewat lonceng
+            }
             $kunci = isset($n['id'])
                 ? (string) $n['id']
                 : md5((string) ($n['judul'] ?? '') . '|' . (string) ($n['created_at'] ?? ''));
@@ -202,7 +248,13 @@ if (!function_exists('notifData')) {
             break;
         }
 
-        $cache = ['daftar' => $daftar, 'belumDibaca' => $belumDibaca, 'toast' => $toast];
+        $cache = [
+            'daftar' => $daftar,
+            'belumDibaca' => $belumDibaca,
+            'toast' => $toast,
+            'terbaruTs' => $terbaruTs,
+            'namaCookie' => $namaCookie,
+        ];
         return $cache;
     }
 }
@@ -417,6 +469,9 @@ if (!function_exists('notifikasiScript')) {
     /** JavaScript notifikasi. Panggil sebelum </body>. */
     function notifikasiScript(): void
     {
+        $d = notifData();
+        $terbaruTs = (int) $d['terbaruTs'];
+        $namaCookie = (string) $d['namaCookie'];
         ?>
 <script>
 (function () {
@@ -432,21 +487,54 @@ if (!function_exists('notifikasiScript')) {
     /* ASUMSI: route POST untuk menandai semua notifikasi sudah dibaca */
     var URL_BACA = <?= json_encode(base_url('nasabah/notifikasi-baca')) ?>;
 
-    function tandaiDibaca() {
+    /* Waktu notifikasi terbaru; disimpan di cookie saat lonceng dibuka */
+    var TERBARU = <?= $terbaruTs ?>;
+
+    /* Nama cookie penanda "sudah dilihat" (berbeda untuk tiap nasabah) */
+    var NAMA_COOKIE = <?= json_encode($namaCookie) ?>;
+
+    function bacaCookieLihat() {
+        try {
+            var cocok = document.cookie.match(new RegExp('(?:^|; )' + NAMA_COOKIE + '=([^;]*)'));
+            return cocok ? (parseInt(cocok[1], 10) || 0) : 0;
+        } catch (e) {
+            return 0;
+        }
+    }
+
+    function hapusAngka() {
         var badge = document.getElementById('ntBadge');
-        if (!badge || !window.fetch || sudahMenandai) { return; }
+        if (badge && badge.parentNode) { badge.parentNode.removeChild(badge); }
+        var count = document.getElementById('ntCount');
+        if (count && count.parentNode) { count.parentNode.removeChild(count); }
+        bell.setAttribute('aria-label', 'Notifikasi');
+    }
+
+    /* Bila notifikasi terbaru sudah pernah dilihat (mis. di tab lain, atau
+       halaman ini dipulihkan lewat tombol Kembali), angka ikut dihilangkan. */
+    function sinkronkanAngka() {
+        if (TERBARU > 0 && bacaCookieLihat() >= TERBARU) { hapusAngka(); }
+    }
+
+    function tandaiDibaca() {
+        /* Angka merah langsung hilang saat lonceng diklik */
+        hapusAngka();
+
+        /* Ingat di browser, supaya angka tidak kembali di halaman berikutnya */
+        if (TERBARU > 0) {
+            try {
+                document.cookie = NAMA_COOKIE + '=' + TERBARU + '; path=/; max-age=31536000; SameSite=Lax';
+            } catch (e) {}
+        }
+
+        /* Tandai dibaca di database (jika route tersedia) */
+        if (!window.fetch || sudahMenandai) { return; }
         sudahMenandai = true;
         fetch(URL_BACA, {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        }).then(function (r) {
-            if (!r.ok) { sudahMenandai = false; return; }
-            if (badge.parentNode) { badge.parentNode.removeChild(badge); }
-            bell.setAttribute('aria-label', 'Notifikasi');
-            var count = document.getElementById('ntCount');
-            if (count && count.parentNode) { count.parentNode.removeChild(count); }
-        }).catch(function () { sudahMenandai = false; /* tetap tampil sebagai baru */ });
+        }).catch(function () { /* tidak apa-apa; cookie sudah menyembunyikan angka */ });
     }
 
     function setOpen(open) {
@@ -470,10 +558,8 @@ if (!function_exists('notifikasiScript')) {
         var tombolTutup = document.getElementById('ntToastClose');
         var tombolUtama = document.getElementById('ntToastMain');
 
-        /* Tandai dibaca begitu halaman dimuat, bukan saat pop-up ditutup,
-           supaya pindah halaman sebelum pop-up hilang tidak memunculkannya lagi. */
-        tandaiDibaca();
-
+        /* Pop-up tidak menghapus angka merah; angka baru hilang saat lonceng diklik.
+           Agar pop-up tidak berulang di halaman lain, pencatatannya ada di session (PHP). */
         window.setTimeout(function () {
             toast.classList.add('show');
             jadwalkanTutup(8000);
@@ -507,6 +593,14 @@ if (!function_exists('notifikasiScript')) {
             setOpen(false);
             bell.focus();
         }
+    });
+
+    /* ----- Sinkron angka saat halaman dipulihkan / tab kembali aktif ----- */
+    window.addEventListener('pageshow', function (e) {
+        if (e.persisted) { sinkronkanAngka(); }
+    });
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) { sinkronkanAngka(); }
     });
 })();
 </script>

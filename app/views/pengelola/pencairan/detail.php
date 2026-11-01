@@ -105,13 +105,25 @@ if (!empty($flash['type']) && in_array($flash['type'], ['success', 'error', 'war
 }
 $flashIcon = ['success' => 'check', 'error' => 'alert', 'warning' => 'alert', 'info' => 'info'][$flashType];
 
+// Label status: satu istilah di semua tempat.
+// Sumber: PengajuanPencairan::semuaStatus() (dikirim controller).
+$labelStatus = (isset($labelStatus) && is_array($labelStatus) && $labelStatus)
+    ? $labelStatus
+    : [
+        'DIAJUKAN'   => 'Menunggu',
+        'DISETUJUI'  => 'Disetujui',
+        'DITOLAK'    => 'Ditolak',
+        'DICAIRKAN'  => 'Dicairkan',
+        'DIBATALKAN' => 'Dibatalkan',
+    ];
+
 // [label, kelas badge]
 $statusMeta = [
-    'DIAJUKAN'   => ['Ditunggu', 'b-amber'],
-    'DISETUJUI'  => ['Setuju', 'b-green'],
-    'DITOLAK'    => ['Ditolak', 'b-rose'],
-    'DICAIRKAN'  => ['Dicairkan', 'b-sky'],
-    'DIBATALKAN' => ['Dibatalkan', 'b-grey'],
+    'DIAJUKAN'   => [$labelStatus['DIAJUKAN'], 'b-amber'],
+    'DISETUJUI'  => [$labelStatus['DISETUJUI'], 'b-green'],
+    'DITOLAK'    => [$labelStatus['DITOLAK'], 'b-rose'],
+    'DICAIRKAN'  => [$labelStatus['DICAIRKAN'], 'b-sky'],
+    'DIBATALKAN' => [$labelStatus['DIBATALKAN'], 'b-grey'],
 ];
 
 $menu = [
@@ -139,8 +151,21 @@ $idPengajuan = (string) $pv('id');
 $tunai = ($pv('metode') === 'TUNAI');
 $sudahDiproses = !empty($pengajuan['diproses_at']);
 $sudahDicairkan = !empty($pengajuan['dicairkan_at']);
+$sudahDibatalkan = !empty($pengajuan['dibatalkan_at']);
 $alasanTolak = trim((string) $pv('alasan_tolak'));
+$alasanBatal = trim((string) $pv('alasan_batal'));
+$pelakuBatal = ((string) $pv('dibatalkan_oleh') === 'PENGELOLA') ? 'pengelola' : 'nasabah';
 $listUrl = base_url('pengelola/pencairan');
+
+// Badge: pengajuan yang dibatalkan menampilkan pelakunya.
+$badgeLabel = $meta[0];
+if ($status === 'DIBATALKAN') {
+    $badgeLabel = $labelStatus['DIBATALKAN'] . ' ' . $pelakuBatal;
+}
+
+// Saldo nasabah dan saldo tersedia (dipakai di kartu ringkasan).
+$saldoNasabah = isset($saldoNasabah) ? (float) $saldoNasabah : 0.0;
+$saldoTersedia = isset($saldoTersedia) ? (float) $saldoTersedia : 0.0;
 
 // Baris data nasabah: [ikon, label, nilai]
 $rincian = [
@@ -153,6 +178,8 @@ $rincian = [
 if ($pv('metode') === 'TRANSFER' && trim((string) $pv('tujuan_transfer')) !== '') {
     $rincian[] = ['send', 'Tujuan transfer', $pv('tujuan_transfer')];
 }
+$rincian[] = ['wallet', 'Saldo nasabah', formatRupiah($saldoNasabah)];
+$rincian[] = ['cash', 'Saldo tersedia', formatRupiah($saldoTersedia)];
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -355,7 +382,7 @@ if ($pv('metode') === 'TRANSFER' && trim((string) $pv('tujuan_transfer')) !== ''
                 <section class="wallet" aria-label="Ringkasan pengajuan">
                     <div class="wallet-top">
                         <span class="chip"><?= icon('hash') ?><?= $e($noPengajuan) ?></span>
-                        <span class="badge <?= $e($meta[1]) ?>"><?= $e($meta[0]) ?></span>
+                        <span class="badge <?= $e($meta[1]) ?>"><?= $e($badgeLabel) ?></span>
                     </div>
                     <p class="wallet-label">Jumlah pencairan</p>
                     <p class="wallet-value"><?= $e(formatRupiah($pv('jumlah', 0))) ?></p>
@@ -392,7 +419,7 @@ if ($pv('metode') === 'TRANSFER' && trim((string) $pv('tujuan_transfer')) !== ''
                             </div>
                         </li>
 
-                        <?php if ($sudahDiproses): ?>
+                        <?php if ($sudahDiproses && $status !== 'DIBATALKAN'): ?>
                             <li class="<?= $status === 'DITOLAK' ? 'bad' : ($status !== 'DIAJUKAN' ? 'on' : '') ?>">
                                 <span class="dot"><?= icon($status === 'DITOLAK' ? 'close' : 'check') ?></span>
                                 <div>
@@ -423,6 +450,19 @@ if ($pv('metode') === 'TRANSFER' && trim((string) $pv('tujuan_transfer')) !== ''
                                     <div class="tl-title">Saldo dicairkan</div>
                                     <div class="tl-date"><?= $e(formatTanggal($pv('dicairkan_at'))) ?></div>
                                     <div class="tl-desc good">Saldo nasabah telah dikurangi.</div>
+                                </div>
+                            </li>
+                        <?php endif; ?>
+
+                        <?php if ($sudahDibatalkan): ?>
+                            <li class="bad">
+                                <span class="dot"><?= icon('close') ?></span>
+                                <div>
+                                    <div class="tl-title">Pengajuan dibatalkan <?= $e($pelakuBatal) ?></div>
+                                    <div class="tl-date"><?= $e(formatTanggal($pv('dibatalkan_at'))) ?></div>
+                                    <?php if ($alasanBatal !== ''): ?>
+                                        <div class="tl-desc bad">Alasan: <?= $e($alasanBatal) ?></div>
+                                    <?php endif; ?>
                                 </div>
                             </li>
                         <?php endif; ?>
@@ -462,12 +502,30 @@ if ($pv('metode') === 'TRANSFER' && trim((string) $pv('tujuan_transfer')) !== ''
                 <?php elseif ($status === 'DISETUJUI'): ?>
                     <section class="card" aria-labelledby="aksi-title">
                         <h2 class="card-title" id="aksi-title"><span class="ico"><?= icon('check') ?></span>Siap dicairkan</h2>
-                        <p class="aksi-note">Pengajuan sudah disetujui. Serahkan dana ke nasabah, lalu tandai sudah dicairkan agar saldo nasabah dikurangi.</p>
-                        <form method="POST" action="<?= base_url('pengelola/pencairan/cairkan') ?>" onsubmit="return confirm('Yakin ingin mencairkan saldo nasabah? Saldo akan dikurangi secara permanen.')">
-                            <?= csrfField() ?>
-                            <input type="hidden" name="id" value="<?= $e($idPengajuan) ?>">
-                            <button type="submit" class="btn btn-primary btn-block"><?= icon('wallet') ?>Tandai sudah dicairkan</button>
-                        </form>
+                        <p class="aksi-note">Pengajuan sudah disetujui. Serahkan dana ke nasabah, lalu tandai sudah dicairkan agar saldo nasabah dikurangi. Kalau ada kendala, batalkan dengan alasan.</p>
+                        <div class="actions">
+                            <form method="POST" action="<?= base_url('pengelola/pencairan/cairkan') ?>" onsubmit="return confirm('Yakin ingin mencairkan saldo nasabah? Saldo akan dikurangi secara permanen.')">
+                                <?= csrfField() ?>
+                                <input type="hidden" name="id" value="<?= $e($idPengajuan) ?>">
+                                <button type="submit" class="btn btn-primary"><?= icon('wallet') ?>Tandai sudah dicairkan</button>
+                            </form>
+                            <button type="button" class="btn btn-danger-ghost" id="btnBatal" aria-controls="batalForm" aria-expanded="false" onclick="showBatalForm()"><?= icon('close') ?>Batalkan</button>
+                        </div>
+
+                        <div class="tolak-box" id="batalForm" hidden>
+                            <form method="POST" action="<?= base_url('pengelola/pencairan/batal') ?>">
+                                <?= csrfField() ?>
+                                <input type="hidden" name="id" value="<?= $e($idPengajuan) ?>">
+                                <div class="field">
+                                    <label for="alasanBatal">Alasan pembatalan <span class="req" aria-hidden="true">*</span></label>
+                                    <textarea name="alasan" id="alasanBatal" rows="3" required placeholder="Jelaskan alasan pembatalan. Nasabah akan menerima notifikasi berisi alasan ini."></textarea>
+                                </div>
+                                <div class="actions">
+                                    <button type="submit" class="btn btn-danger">Konfirmasi batalkan</button>
+                                    <button type="button" class="btn btn-ghost" onclick="hideBatalForm()">Batal</button>
+                                </div>
+                            </form>
+                        </div>
                     </section>
 
                 <?php elseif ($status === 'DITOLAK'): ?>
@@ -491,7 +549,11 @@ if ($pv('metode') === 'TRANSFER' && trim((string) $pv('tujuan_transfer')) !== ''
                 <?php elseif ($status === 'DIBATALKAN'): ?>
                     <div class="notice notice-info state" role="status">
                         <?= icon('info') ?>
-                        <div><p><strong>Pengajuan ini dibatalkan.</strong></p></div>
+                        <div>
+                            <p><strong>Pengajuan ini dibatalkan <?= $e($pelakuBatal) ?>.</strong></p>
+                            <?php if ($alasanBatal !== ''): ?><p>Alasan: <?= $e($alasanBatal) ?></p><?php endif; ?>
+                            <p>Status pengajuan tidak bisa diubah lagi.</p>
+                        </div>
                     </div>
                 <?php endif; ?>
             </div>
@@ -545,6 +607,22 @@ if ($pv('metode') === 'TRANSFER' && trim((string) $pv('tujuan_transfer')) !== ''
             var btn = document.getElementById('btnTolak');
             box.hidden = true;
             document.getElementById('alasan').value = '';
+            if (btn) { btn.setAttribute('aria-expanded', 'false'); btn.focus(); }
+        }
+
+        function showBatalForm() {
+            var box = document.getElementById('batalForm');
+            var btn = document.getElementById('btnBatal');
+            box.hidden = false;
+            if (btn) { btn.setAttribute('aria-expanded', 'true'); }
+            document.getElementById('alasanBatal').focus();
+        }
+
+        function hideBatalForm() {
+            var box = document.getElementById('batalForm');
+            var btn = document.getElementById('btnBatal');
+            box.hidden = true;
+            document.getElementById('alasanBatal').value = '';
             if (btn) { btn.setAttribute('aria-expanded', 'false'); btn.focus(); }
         }
     </script>

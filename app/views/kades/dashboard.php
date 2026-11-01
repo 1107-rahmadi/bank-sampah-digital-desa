@@ -4,10 +4,18 @@
  *
  * Compatible dengan PHP 7.3+
  *
- * @var array      $stats      total_bank, total_nilai_beli, total_nilai_jual,
- *                             total_transaksi_beli, total_transaksi_jual
- * @var array      $bankStats  tiap item: bank['nama'], transaksi_beli, nilai_beli,
- *                             transaksi_jual, nilai_jual
+ * Semua angka agregat, tanpa data pribadi warga (BR-09).
+ *
+ * @var array      $stats          total_bank, total_nilai_beli, total_nilai_jual,
+ *                                 total_transaksi_beli, total_transaksi_jual,
+ *                                 total_berat_beli, berat_beli_sebelumnya
+ * @var array      $bankStats      tiap item: bank['nama'], transaksi_beli, nilai_beli,
+ *                                 transaksi_jual, nilai_jual
+ * @var array      $trend          labels[], beli[], jual[] (tren mingguan)
+ * @var int        $minggu         periode: 4 atau 12 minggu
+ * @var int|null   $nasabahAktif   OPSIONAL: jumlah nasabah aktif pada periode
+ * @var array|null $komposisi      OPSIONAL: tiap item nama, berat_kg
+ * @var array|null $partisipasiRw  OPSIONAL: tiap item rw, nasabah_aktif, berat_kg
  * @var array      $user
  * @var array|null $flash
  */
@@ -16,6 +24,16 @@ if (!function_exists('formatRupiah')) {
     function formatRupiah($number): string
     {
         return 'Rp ' . number_format((float) $number, 0, ',', '.');
+    }
+}
+
+if (!function_exists('formatBerat')) {
+    /** Berat dalam kg, koma desimal, tanpa nol di belakang. */
+    function formatBerat($kg): string
+    {
+        $s = number_format((float) $kg, 2, ',', '.');
+        $s = rtrim(rtrim($s, '0'), ',');
+        return ($s === '' ? '0' : $s) . ' kg';
     }
 }
 
@@ -61,6 +79,34 @@ $totalNilaiBeli = (float) ($stats['total_nilai_beli'] ?? 0);
 $totalNilaiJual = (float) ($stats['total_nilai_jual'] ?? 0);
 $totalTransaksiBeli = (float) ($stats['total_transaksi_beli'] ?? 0);
 $totalTransaksiJual = (float) ($stats['total_transaksi_jual'] ?? 0);
+
+// Periode (FR-22): 4 atau 12 minggu terakhir
+$minggu = isset($minggu) ? (int) $minggu : 4;
+if (!in_array($minggu, [4, 12], true)) {
+    $minggu = 4;
+}
+
+// Total sampah terkumpul (FR-21) dan pembanding periode sebelumnya
+$totalBerat = (float) ($stats['total_berat_beli'] ?? 0);
+$beratLalu = (float) ($stats['berat_beli_sebelumnya'] ?? 0);
+if ($beratLalu > 0) {
+    $pct = (int) round(($totalBerat - $beratLalu) / $beratLalu * 100);
+    $banding = ($pct >= 0 ? 'Naik ' : 'Turun ') . abs($pct) . '% dari periode sebelumnya';
+} else {
+    $banding = 'Belum ada pembanding periode sebelumnya';
+}
+
+// Data opsional (aman bila controller belum mengirim)
+$nasabahAktif = isset($nasabahAktif) ? $nasabahAktif : null;
+$komposisi = (isset($komposisi) && is_array($komposisi)) ? $komposisi : [];
+$partisipasiRw = (isset($partisipasiRw) && is_array($partisipasiRw)) ? $partisipasiRw : [];
+
+// Data tren mingguan untuk grafik. Aman bila controller belum mengirim $trend.
+$trend = (isset($trend) && is_array($trend)) ? $trend : [];
+$trendLabels = isset($trend['labels']) && is_array($trend['labels']) ? array_values($trend['labels']) : [];
+$trendBeli = isset($trend['beli']) && is_array($trend['beli']) ? array_map('floatval', array_values($trend['beli'])) : [];
+$trendJual = isset($trend['jual']) && is_array($trend['jual']) ? array_map('floatval', array_values($trend['jual'])) : [];
+$adaTren = (array_sum($trendBeli) + array_sum($trendJual)) > 0;
 
 $namaUser = (string) ($user['nama'] ?? 'Kepala Desa');
 $namaDepan = trim(explode(' ', trim($namaUser))[0]);
@@ -229,6 +275,15 @@ body.nav-open .burger-bar:nth-child(3) { transform: translateY(-8.5px) rotate(-4
 .flash-warning { background: var(--amber-bg); color: var(--amber); border-color: #f6d9a0; }
 .flash-info { background: var(--sky-bg); color: var(--sky); border-color: #c4d8fa; }
 
+/* ---------- Filter periode ---------- */
+.periode { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
+.preset {
+    padding: .3125rem .875rem; border-radius: 999px; font-size: .875rem; font-weight: 600;
+    text-decoration: none; background: #eef1ec; color: var(--ink-2); border: 1px solid transparent;
+}
+.preset:hover { background: var(--g-100); }
+.preset.on { background: var(--g-100); color: var(--g-800); border-color: var(--g-200); }
+
 /* ---------- Kartu ringkasan (hero) ---------- */
 .wallet {
     position: relative; overflow: hidden; color: #fff;
@@ -281,10 +336,21 @@ body.nav-open .burger-bar:nth-child(3) { transform: translateY(-8.5px) rotate(-4
 .action-sub { display: block; font-size: .875rem; font-weight: 500; color: var(--ink-3); }
 .action > svg { width: 18px; height: 18px; color: var(--ink-3); flex-shrink: 0; }
 
-/* ---------- Rekapitulasi ---------- */
+/* ---------- Section umum ---------- */
+.section-gap { margin-bottom: 1.5rem; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .625rem; }
 .section-title { font-size: 1.125rem; font-weight: 700; color: var(--ink); letter-spacing: -.02em; }
+.section-note { font-size: .875rem; font-weight: 500; color: var(--ink-3); }
 .panel { background: var(--card); border: 1px solid var(--line); border-radius: 20px; overflow: hidden; }
+
+/* ---------- Grafik tren ---------- */
+.chart-box { padding: 1rem 1.25rem 1.25rem; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: .375rem 1.25rem; font-size: .875rem; font-weight: 500; color: var(--ink-2); margin-bottom: .75rem; }
+.chart-legend span { display: inline-flex; align-items: center; gap: .5rem; }
+.chart-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; }
+.chart-wrap { position: relative; height: 260px; }
+
+/* ---------- Rekapitulasi ---------- */
 .table-wrap { overflow-x: auto; }
 .rekap { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .rekap th {
@@ -340,8 +406,10 @@ body.nav-open .burger-bar:nth-child(3) { transform: translateY(-8.5px) rotate(-4
     .split-value { font-size: 1.0625rem; }
     .split:first-child { grid-column: 1 / -1; }
     .actions { grid-template-columns: minmax(0, 1fr); }
+    .chart-box { padding: .875rem .875rem 1rem; }
+    .chart-wrap { height: 220px; }
 
-    /* Tabel berubah menjadi kartu per bank sampah */
+    /* Tabel berubah menjadi kartu per baris */
     .rekap, .rekap tbody, .rekap tfoot, .rekap tr, .rekap td { display: block; width: 100%; }
     .rekap thead {
         position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0);
@@ -437,23 +505,36 @@ if (window.__navOpen) { document.body.classList.add('nav-open'); }
             <p class="greet-sub">Monitoring kegiatan Bank Sampah di desa Anda</p>
         </div>
 
+        <!-- Filter periode (FR-22) -->
+        <nav class="periode" aria-label="Periode dashboard">
+            <?php foreach ([4, 12] as $m): ?>
+                <a class="preset<?= $m === $minggu ? ' on' : '' ?>"
+                   href="<?= htmlspecialchars(base_url('kades/dashboard') . '?minggu=' . $m) ?>"<?= $m === $minggu ? ' aria-current="true"' : '' ?>><?= $m ?> minggu terakhir</a>
+            <?php endforeach; ?>
+        </nav>
+
         <section class="wallet" aria-label="Ringkasan kegiatan">
-            <span class="wallet-label"><?= icon('wallet') ?> Total pembelian sampah</span>
-            <div class="wallet-amount"><?= formatRupiah($totalNilaiBeli) ?></div>
-            <p class="wallet-note">Dari seluruh bank sampah di desa</p>
+            <span class="wallet-label"><?= icon('wallet') ?> Total sampah terkumpul</span>
+            <div class="wallet-amount"><?= htmlspecialchars(formatBerat($totalBerat)) ?></div>
+            <p class="wallet-note"><?= htmlspecialchars($banding) ?></p>
 
             <div class="wallet-split">
                 <div class="split">
-                    <div class="split-label">Total penjualan</div>
+                    <div class="split-label">Nilai pembelian sampah</div>
+                    <div class="split-value"><?= formatRupiah($totalNilaiBeli) ?></div>
+                </div>
+                <div class="split">
+                    <div class="split-label">Nilai penjualan</div>
                     <div class="split-value"><?= formatRupiah($totalNilaiJual) ?></div>
                 </div>
                 <div class="split">
-                    <div class="split-label">Total transaksi</div>
-                    <div class="split-value"><?= number_format($totalTransaksiBeli + $totalTransaksiJual) ?></div>
-                </div>
-                <div class="split">
-                    <div class="split-label">Bank sampah</div>
-                    <div class="split-value"><?= number_format($totalBank) ?></div>
+                    <?php if ($nasabahAktif !== null): ?>
+                        <div class="split-label">Nasabah aktif</div>
+                        <div class="split-value"><?= number_format($nasabahAktif) ?></div>
+                    <?php else: ?>
+                        <div class="split-label">Total transaksi</div>
+                        <div class="split-value"><?= number_format($totalTransaksiBeli + $totalTransaksiJual) ?></div>
+                    <?php endif; ?>
                 </div>
             </div>
         </section>
@@ -471,9 +552,108 @@ if (window.__navOpen) { document.body.classList.add('nav-open'); }
             </a>
         </nav>
 
+        <!-- ========== Tren transaksi ========== -->
+        <section aria-labelledby="h-tren" class="section-gap">
+            <div class="section-head">
+                <h2 class="section-title" id="h-tren">Tren transaksi</h2>
+                <span class="section-note"><?= $minggu ?> minggu terakhir</span>
+            </div>
+
+            <div class="panel">
+                <?php if ($adaTren): ?>
+                    <div class="chart-box">
+                        <div class="chart-legend" aria-hidden="true">
+                            <span><i style="background:#2e7d32"></i>Pembelian</span>
+                            <span><i style="background:#1a56c4"></i>Penjualan</span>
+                        </div>
+                        <div class="chart-wrap">
+                            <canvas id="trenChart" role="img" aria-label="Grafik tren nilai pembelian dan penjualan sampah per minggu"></canvas>
+                        </div>
+                    </div>
+                <?php else: ?>
+                    <div class="empty">
+                        <div class="empty-ico" aria-hidden="true"><?= icon('trending') ?></div>
+                        <h3>Grafik belum tersedia</h3>
+                        <p>Grafik akan muncul setelah ada transaksi dalam <?= $minggu ?> minggu terakhir.</p>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </section>
+
+        <!-- ========== Komposisi jenis sampah (FR-21) ========== -->
+        <?php if (!empty($komposisi)):
+            $totalKomp = 0;
+            foreach ($komposisi as $k) {
+                $totalKomp += (float) ($k['berat_kg'] ?? 0);
+            }
+        ?>
+        <section aria-labelledby="h-komp" class="section-gap">
+            <div class="section-head">
+                <h2 class="section-title" id="h-komp">Komposisi jenis sampah</h2>
+                <span class="section-note"><?= $minggu ?> minggu terakhir</span>
+            </div>
+            <div class="panel">
+                <div class="table-wrap">
+                    <table class="rekap">
+                        <thead>
+                            <tr>
+                                <th scope="col">Jenis sampah</th>
+                                <th scope="col">Berat</th>
+                                <th scope="col">Porsi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($komposisi as $k): $b = (float) ($k['berat_kg'] ?? 0); ?>
+                                <tr>
+                                    <td><span class="bank-name"><?= htmlspecialchars((string) ($k['nama'] ?? '-')) ?></span></td>
+                                    <td data-label="Berat"><?= htmlspecialchars(formatBerat($b)) ?></td>
+                                    <td data-label="Porsi"><?= $totalKomp > 0 ? round($b / $totalKomp * 100) : 0 ?>%</td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+        <?php endif; ?>
+
+        <!-- ========== Partisipasi per RW (FR-21) ========== -->
+        <?php if (!empty($partisipasiRw)): ?>
+        <section aria-labelledby="h-rw" class="section-gap">
+            <div class="section-head">
+                <h2 class="section-title" id="h-rw">Partisipasi per RW</h2>
+                <span class="section-note"><?= $minggu ?> minggu terakhir</span>
+            </div>
+            <div class="panel">
+                <div class="table-wrap">
+                    <table class="rekap">
+                        <thead>
+                            <tr>
+                                <th scope="col">RW</th>
+                                <th scope="col">Nasabah aktif</th>
+                                <th scope="col">Berat</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($partisipasiRw as $r): ?>
+                                <tr>
+                                    <td><span class="bank-name">RW <?= htmlspecialchars((string) ($r['rw'] ?? '-')) ?></span></td>
+                                    <td data-label="Nasabah aktif"><?= number_format((float) ($r['nasabah_aktif'] ?? 0)) ?></td>
+                                    <td data-label="Berat"><?= htmlspecialchars(formatBerat($r['berat_kg'] ?? 0)) ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+        <?php endif; ?>
+
+        <!-- ========== Rekapitulasi per bank sampah ========== -->
         <section aria-labelledby="h-rekap">
             <div class="section-head">
                 <h2 class="section-title" id="h-rekap">Rekapitulasi per Bank Sampah</h2>
+                <span class="section-note"><?= $minggu ?> minggu terakhir</span>
             </div>
 
             <div class="panel">
@@ -566,5 +746,70 @@ if (window.__navOpen) { document.body.classList.add('nav-open'); }
     syncBurger();
 })();
 </script>
+
+<?php if ($adaTren): ?>
+<!-- Chart.js hanya dimuat bila ada data untuk digambar -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+    var el = document.getElementById('trenChart');
+    if (!el || typeof Chart === 'undefined') { return; }
+
+    var data = <?= json_encode([
+        'labels' => $trendLabels,
+        'beli'   => $trendBeli,
+        'jual'   => $trendJual,
+    ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+
+    function rp(v) { return 'Rp ' + Number(v).toLocaleString('id-ID'); }
+    function rpSingkat(v) {
+        v = Number(v);
+        if (v >= 1000000) { return 'Rp ' + (v / 1000000).toLocaleString('id-ID') + ' jt'; }
+        if (v >= 1000) { return 'Rp ' + (v / 1000).toLocaleString('id-ID') + ' rb'; }
+        return 'Rp ' + v.toLocaleString('id-ID');
+    }
+
+    Chart.defaults.font.family = "'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif";
+    Chart.defaults.color = '#5b6a5e';
+
+    new Chart(el, {
+        type: 'line',
+        data: {
+            labels: data.labels,
+            datasets: [
+                {
+                    label: 'Pembelian', data: data.beli,
+                    borderColor: '#2e7d32', backgroundColor: 'rgba(46,125,50,.12)',
+                    pointBackgroundColor: '#2e7d32', fill: true, tension: .3, borderWidth: 2.5, pointRadius: 3
+                },
+                {
+                    label: 'Penjualan', data: data.jual,
+                    borderColor: '#1a56c4', backgroundColor: 'rgba(26,86,196,.08)',
+                    pointBackgroundColor: '#1a56c4', fill: true, tension: .3, borderWidth: 2.5, pointRadius: 3
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        title: function (items) { return 'Minggu ' + items[0].label; },
+                        label: function (c) { return ' ' + c.dataset.label + ': ' + rp(c.parsed.y); }
+                    }
+                }
+            },
+            scales: {
+                x: { grid: { display: false } },
+                y: { beginAtZero: true, ticks: { callback: rpSingkat } }
+            }
+        }
+    });
+})();
+</script>
+<?php endif; ?>
 </body>
 </html>

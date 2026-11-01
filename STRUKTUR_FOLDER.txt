@@ -1,0 +1,307 @@
+================================================================================
+ DIAGRAM SUSUNAN FOLDER PROYEK
+ Bank Sampah Desa - belajar_ai
+================================================================================
+
+belajar_ai/
+│
+├── .env                          Konfigurasi environment (rahasia)
+├── .env.example                  Contoh konfigurasi environment
+├── .gitignore                    Aturan file yang diabaikan Git
+├── DESIGN.md                     Dokumen desain aplikasi
+├── PRODUCT.md                    Dokumen produk
+├── PROGRESS.md                   Catatan progres pengerjaan
+├── PROSES_BISNIS.md              Alur proses bisnis
+├── README.md                     Dokumentasi utama proyek
+├── kelola.md                     (pengelola.md) Dokumentasi modul pengelola
+├── login.php                     Halaman login lama/standalone
+├── login.css                     Tampilan halaman login
+├── cek_session.php               Pengecek session login
+├── database.sql                  Skema database awal (dump SQL)
+│
+├── api/                          Layer REST API (untuk mobile/offline sync)
+│   ├── .htaccess                 Aturan rewrite URL API
+│   ├── index.php                 Entry point API
+│   ├── base.php                  Koneksi & helper dasar API
+│   ├── auth.php                   Endpoint autentikasi
+│   ├── dashboard.php             Endpoint dashboard
+│   ├── health.php                Endpoint health check
+│   ├── kategori.php              Endpoint kategori sampah
+│   ├── nasabah.php               Endpoint data nasabah
+│   ├── transaksi.php             Endpoint transaksi
+│   ├── tes.php                   Endpoint uji coba
+│   └── sync/
+│       ├── pull.php              Tarik data perubahan (sync pull)
+│       └── setoran.php           Unggah data setoran (sync upload)
+│
+├── app/                          Core aplikasi (MVC)
+│   │
+│   ├── controllers/              Controller per peran pengguna
+│   │   ├── README.md             Panduan controller
+│   │   ├── AdminController.php    CRUD admin: users, desa, bank sampah, pengaturan
+│   │   ├── AuthController.php    Login, register, logout
+│   │   ├── HomeController.php    Halaman publik (home, about)
+│   │   ├── KadesController.php   Dashboard & monitoring kepala desa
+│   │   ├── NasabahController.php Setor, cairkan, riwayat, profil nasabah
+│   │   ├── PasswordController.php Ganti kata sandi (semua peran)
+│   │   └── PengelolaController.php Modul pengelola bank sampah
+│   │
+│   ├── helpers/                  Fungsi bantu global
+│   │   ├── AkunGuard.php          Penjaga akses & konsistensi akun
+│   │   ├── auth.php               Helper autentikasi & session
+│   │   ├── money.php              Format & parsing nominal rupiah
+│   │   ├── render.php             Helper render view
+│   │   └── util.php               Utilitas miscellaneous
+│   │
+│   ├── models/                   Model / akses database
+│   │   ├── README.md             Panduan model
+│   │   ├── Analytics.php          Agregasi & statistik dashboard
+│   │   ├── AuditLog.php           Pencatatan jejak audit
+│   │   ├── BankSampah.php         Data unit bank sampah
+│   │   ├── Desa.php               Data desa
+│   │   ├── HargaSampah.php        Master harga sampah
+│   │   ├── KategoriSampah.php     Master kategori sampah
+│   │   ├── MutasiSaldo.php        Mutasi saldo nasabah
+│   │   ├── Nasabah.php            Data nasabah
+│   │   ├── Notifikasi.php         Notifikasi pengguna
+│   │   ├── PengajuanPencairan.php Pengajuan pencairan & pembatalan
+│   │   ├── Pengepul.php           Data pengepul sampah
+│   │   ├── StokSampah.php         Stok sampah bank sampah
+│   │   ├── TransaksiBeli.php      Transaksi pembelian sampah
+│   │   ├── TransaksiJual.php      Transaksi penjualan sampah
+│   │   └── User.php               Data user, hash & verifikasi password
+│   │
+│   └── views/                    Tampilan (template)
+│       ├── README.md             Panduan view
+│       ├── about.php             Halaman tentang
+│       ├── home.php              Landing page
+│       │
+│       ├── admin/
+│       │   ├── dashboard.php      Dashboard admin
+│       │   ├── audit_log.php      Tabel audit log
+│       │   ├── bank_sampah/
+│       │   │   ├── index.php      Daftar bank sampah
+│       │   │   └── form.php       Form bank sampah
+│       │   ├── desa/
+│       │   │   ├── index.php      Daftar desa
+│       │   │   └── form.php       Form desa
+│       │   ├── nasabah/
+│       │   │   ├── index.php      Daftar nasabah
+│       │   │   └── form.php       Form nasabah
+│       │   ├── pengaturan/
+│       │   │   └── index.php      Pengaturan aplikasi
+│       │   └── users/
+│       │       ├── index.php      Daftar pengguna
+│       │       └── form.php       Form pengguna
+│       │
+│       ├── auth/
+│       │   ├── login.php          Formulir login
+│       │   ├── register.php       Formulir pendaftaran
+│       │   └── GantiPassword.php  Formulir ganti password
+│       │
+│       ├── kades/
+│       │   ├── dashboard.php      Dashboard kepala desa
+│       │   ├── laporan.php        Laporan kepala desa
+│       │   └── monitoring.php     Monitoring operasional
+│       │
+│       ├── layouts/
+│       │   └── main.php           Layout utama (header, sidebar, footer)
+│       │
+│       ├── nasabah/
+│       │   ├── dashboard.php      Dashboard nasabah
+│       │   ├── setor.php          Form setor sampah
+│       │   ├── cairkan.php        Form pengajuan pencairan
+│       │   ├── riwayat.php        Riwayat transaksi nasabah
+│       │   ├── profil.php         Profil & ganti password nasabah
+│       │   └── partials/
+│       │       ├── notifikasi.php Daftar notifikasi
+│       │       └── sidebar.php     Sidebar nasabah
+│       │
+│       ├── pengelola/
+│       │   ├── dashboard.php      Dashboard pengelola
+│       │   ├── harga/
+│       │   │   ├── index.php      Daftar harga sampah
+│       │   │   └── form.php       Form harga sampah
+│       │   ├── kategori/
+│       │   │   ├── index.php      Daftar kategori sampah
+│       │   │   └── form.php       Form kategori sampah
+│       │   ├── laporan/
+│       │   │   └── index.php       Halaman laporan & ekspor PDF
+│       │   ├── nasabah/
+│       │   │   ├── index.php      Daftar nasabah terkelola
+│       │   │   └── form.php       Form nasabah terkelola
+│       │   ├── partials/
+│       │   │   ├── sidebar.php     Sidebar pengelola
+│       │   │   ├── style.php      Style tambahan pengelola
+│       │   │   ├── topbar.php      Topbar pengelola
+│       │   │   └── ui.php          Komponen UI reusable
+│       │   ├── pencairan/
+│       │   │   ├── index.php      Daftar pengajuan pencairan
+│       │   │   └── detail.php     Detail & aksi persetujuan pencairan
+│       │   ├── pengepul/
+│       │   │   ├── index.php      Daftar pengepul
+│       │   │   └── form.php       Form pengepul
+│       │   ├── stok/
+│       │   │   └── index.php      Stok sampah
+│       │   ├── transaksi_beli/
+│       │   │   ├── index.php      Daftar transaksi beli
+│       │   │   ├── form.php       Form transaksi beli
+│       │   │   └── detail.php      Detail transaksi beli
+│       │   └── transaksi_jual/
+│       │       ├── index.php      Daftar transaksi jual
+│       │       ├── form.php       Form transaksi jual
+│       │       └── detail.php      Detail transaksi jual
+│       │
+│       └── partials/              Partial global
+│           ├── header.php         Header global
+│           └── footer.php         Footer global
+│
+├── bank_sampah/                  Versi lama/legacy modul bank sampah
+│   ├── database.sql              Skema DB versi lama
+│   ├── config/
+│   │   └── tes_koneksi.php       Uji koneksi DB versi lama
+│   ├── controller/
+│   │   └── PengelolaController.php Controller versi lama
+│   ├── model/
+│   │   ├── HargaSampah.php
+│   │   ├── KategoriSampah.php
+│   │   ├── Nasabah.php
+│   │   ├── Notifikasi.php
+│   │   ├── PengajuanPencairan.php
+│   │   ├── Pengepul.php
+│   │   ├── StokSampah.php
+│   │   ├── TransaksiBeli.php
+│   │   └── TransaksiJual.php
+│   ├── public/
+│   │   └── index.php              Entry point versi lama
+│   └── views/
+│       └── pengelola/
+│           ├── dashboard.php
+│           ├── transaksi_beli/
+│           │   ├── index.php
+│           │   ├── form.php
+│           │   └── detail.php
+│           └── transaksi_jual/
+│               ├── index.php
+│               ├── form.php
+│               └── detail.php
+│
+├── config/                       Konfigurasi aplikasi
+│   ├── app.php                    Konfigurasi umum & routing
+│   ├── database.php               Konfigurasi koneksi database
+│   └── tes_koneksi.php            Skrip uji koneksi
+│
+├── database/                     Skema, migrasi, dan data awal
+│   ├── add_nasabah.php            Skrip penambahan nasabah
+│   ├── setup_nasabah.php          Skrip setup nasabah (CLI)
+│   ├── setup_nasabah_web.php      Skrip setup nasabah (web)
+│   ├── triggers.sql               Trigger database
+│   ├── migrations/
+│   │   ├── 001_initial_schema.sql        Skema awal
+│   │   ├── 002_create_sync_changes.sql   Tabel sinkronisasi
+│   │   ├── 003_offline_columns.sql        Kolom untuk mode offline
+│   │   ├── 004_koreksi_batal.sql          Perbaikan status batal
+│   │   ├── 005_detail_jual_harga.sql      Detail harga transaksi jual
+│   │   └── 006_pencairan_pembatalan.sql  Pembatalan pencairan
+│   ├── patches/
+│   │   └── 001_add_nasabah_users.sql     Patch tabel users
+│   └── seeds/
+│       └── 001_sample_data.sql           Data contoh
+│
+├── lib/                          Pustaka pendukung
+│   ├── LaporanPdf.php             Pembuat PDF laporan
+│   ├── PdfGenerator.php           Generator PDF
+│   ├── README_PDF.md              Panduan PDF
+│   ├── install_tcpdf.php          Installer TCPDF
+│   └── tcpdf/                     Pustaka TCPDF (third-party)
+│       ├── config/                Konfigurasi TCPDF
+│       ├── examples/               Contoh & demo TCPDF
+│       ├── fonts/                  Font bawaan TCPDF
+│       ├── include/                Include TCPDF
+│       ├── tools/                  Tooling TCPDF
+│       ├── CHANGELOG.TXT
+│       ├── LICENSE.TXT
+│       ├── README.md
+│       ├── VERSION
+│       └── composer.json
+│
+├── public/                       Document root web
+│   ├── .htaccess                 Aturan rewrite URL
+│   ├── index.php                 Front controller
+│   ├── debug-url.php             Bantu debug URL
+│   ├── test-link.php             Uji tautan
+│   ├── test-transaksi.php        Uji transaksi
+│   ├── test-url.php              Uji URL
+│   └── assets/
+│       ├── css/
+│       │   ├── Pengelola.css     Style modul pengelola
+│       │   └── style.css          Style global
+│       └── js/
+│           ├── Pengelola.js     JavaScript modul pengelola
+│           └── app.js            JavaScript global
+│
+├── tests/                        Pengujian otomatis
+│   ├── _pencairan_aksi.php       Helper aksi pencairan
+│   ├── test_pencairan.php        Test pencairan
+│   └── test_pencairan_controller.php  Test controller pencairan
+│
+└── tools/                        Skrip utilitas
+    └── smoke_pengelola.php       Smoke test modul pengelola
+
+
+================================================================================
+ RINGKASAN STRUKTUR
+================================================================================
+
+  app/
+    controllers/   -> 7 controller  (Admin, Auth, Home, Kades, Nasabah,
+                                Password, Pengelola)
+    helpers/      -> 5 helper     (AkunGuard, auth, money, render, util)
+    models/       -> 14 model     (Analytics, AuditLog, BankSampah, Desa,
+                                HargaSampah, KategoriSampah, MutasiSaldo,
+                                Nasabah, Notifikasi, PengajuanPencairan,
+                                Pengepul, StokSampah, TransaksiBeli,
+                                TransaksiJual, User)
+    views/        -> 5 area view  (admin, auth, kades, nasabah, pengelola)
+                      + layouts/ dan partials/ global
+
+  api/            -> 9 endpoint + folder sync/ (2 file)
+  config/         -> 3 file konfigurasi
+  database/       -> migrations/ (6), patches/ (1), seeds/ (1) + skrip setup
+  lib/            -> 4 file homemade + tcpdf/ (pustaka pihak ketiga)
+  public/         -> front controller + assets (css, js)
+  tests/          -> 3 file uji
+  tools/          -> 1 skrip smoke test
+  bank_sampah/    -> versi lama/legacy (arsip)
+
+  Catatan:
+  - Folder bank_sampah/ adalah implementasi lama sebelum refactor ke app/.
+  - Folder lib/tcpdf/ adalah pustaka pihak ketiga (bukan kode proyek).
+  - Folder .git/ tidak ditampilkan pada diagram ini.
+
+================================================================================
+ ALUR REQUEST (ringkas)
+================================================================================
+
+  Browser / Mobile
+        |
+        v
+  public/index.php  (front controller)
+        |
+        v
+  app/controllers/*  ->  app/models/*  ->  MySQL (config/database.php)
+        |                    |
+        |                    +-> audit_log (AuditLog)
+        v
+  app/views/*  (dengan app/helpers/*)
+        |
+        v
+  Response ke pengguna
+
+  Untuk API (mobile):
+  Browser/Mobile -> api/index.php -> api/*.php -> sync/{pull,setoran}.php -> DB
+
+================================================================================
+ Dibuat sebagai dokumentasi struktur folder.
+ Tidak ada kode aplikasi yang diubah.
+================================================================================

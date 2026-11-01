@@ -163,6 +163,55 @@ class NasabahController
     }
 
     /**
+     * Batalkan pengajuan pencairan milik nasabah sendiri.
+     *
+     * Nasabah hanya boleh membatalkan pengajuan yang masih berstatus
+     * DIAJUKAN (Menunggu). Setelah pengajuan disetujui, pembatalan hanya
+     * bisa dilakukan oleh pengelola. Saldo yang tertahan dilepas kembali
+     * karena pengajuan tidak lagi berstatus Menunggu.
+     */
+    public function batalkanPencairan(): void
+    {
+        requirePost('nasabah/dashboard');
+        verifyCsrf();
+
+        $nasabah = $this->getCurrentNasabah();
+
+        if (!$nasabah) {
+            setFlashMessage('error', 'Data akun tidak ditemukan.');
+            redirect('logout');
+            return;
+        }
+
+        $id = isset($_POST['id']) ? (int) $_POST['id'] : 0;
+        $pengajuan = $id ? $this->pencairanModel->findById($id) : null;
+
+        if (!$pengajuan || (int) $pengajuan['nasabah_id'] !== (int) $nasabah['id']) {
+            setFlashMessage('error', 'Pengajuan tidak ditemukan.');
+            redirect('nasabah/dashboard');
+            return;
+        }
+
+        if ($pengajuan['status'] !== PengajuanPencairan::STATUS_DIAJUKAN) {
+            setFlashMessage(
+                'error',
+                'Pengajuan yang sudah ' . strtolower(PengajuanPencairan::labelStatus($pengajuan['status']))
+                    . ' tidak bisa dibatalkan oleh nasabah.'
+            );
+            redirect('nasabah/dashboard');
+            return;
+        }
+
+        if ($this->pencairanModel->batalkanNasabah($id, (int) currentUserId())) {
+            setFlashMessage('success', 'Pengajuan ' . $pengajuan['no_pengajuan'] . ' telah dibatalkan.');
+        } else {
+            setFlashMessage('error', $this->pencairanModel->getLastError() ?: 'Gagal membatalkan pengajuan.');
+        }
+
+        redirect('nasabah/dashboard');
+    }
+
+    /**
      * Proses pengajuan pencairan
      *
      * @param array $nasabah

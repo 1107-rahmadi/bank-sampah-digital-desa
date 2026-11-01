@@ -126,6 +126,73 @@ class BankSampah
     }
 
     /**
+     * Ubah status bank sampah saja (AKTIF atau NONAKTIF).
+     *
+     * Hanya kolom status yang berubah. Kolom lain dan data terkait
+     * (Pengelola, nasabah, transaksi) tidak tersentuh.
+     *
+     * @param int    $id
+     * @param string $status AKTIF atau NONAKTIF
+     * @return bool
+     */
+    public function ubahStatus(int $id, string $status): bool
+    {
+        if (!in_array($status, ['AKTIF', 'NONAKTIF'], true)) {
+            return false;
+        }
+
+        $stmt = $this->db->prepare("UPDATE bank_sampah SET status = :status WHERE id = :id");
+        return $stmt->execute(['status' => $status, 'id' => $id]);
+    }
+
+    /**
+     * Jumlah Pengelola dan nasabah yang masih AKTIF untuk beberapa bank sampah.
+     *
+     * Dipakai untuk memberi peringatan saat bank sampah dinonaktifkan.
+     *
+     * @param int[] $ids
+     * @return array<int, array> peta id => ['pengelola' => int, 'nasabah' => int]
+     */
+    public function getRelasiAktifPeta(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        if (empty($ids)) {
+            return [];
+        }
+
+        $peta = [];
+        foreach ($ids as $id) {
+            $peta[$id] = ['pengelola' => 0, 'nasabah' => 0];
+        }
+
+        $tanda = implode(',', array_fill(0, count($ids), '?'));
+
+        $stmt = $this->db->prepare("
+            SELECT bank_sampah_id, COUNT(*) AS total
+            FROM users
+            WHERE role = 'PENGELOLA' AND status = 'AKTIF' AND bank_sampah_id IN ({$tanda})
+            GROUP BY bank_sampah_id
+        ");
+        $stmt->execute($ids);
+        foreach ($stmt->fetchAll() as $row) {
+            $peta[(int) $row['bank_sampah_id']]['pengelola'] = (int) $row['total'];
+        }
+
+        $stmt = $this->db->prepare("
+            SELECT bank_sampah_id, COUNT(*) AS total
+            FROM nasabah
+            WHERE status = 'AKTIF' AND bank_sampah_id IN ({$tanda})
+            GROUP BY bank_sampah_id
+        ");
+        $stmt->execute($ids);
+        foreach ($stmt->fetchAll() as $row) {
+            $peta[(int) $row['bank_sampah_id']]['nasabah'] = (int) $row['total'];
+        }
+
+        return $peta;
+    }
+
+    /**
      * Hapus bank sampah
      *
      * @param int $id

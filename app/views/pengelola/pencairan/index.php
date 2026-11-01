@@ -101,13 +101,25 @@ if (!empty($flash['type']) && in_array($flash['type'], ['success', 'error', 'war
 }
 $flashIcon = ['success' => 'check', 'error' => 'alert', 'warning' => 'alert', 'info' => 'info'][$flashType];
 
+// Label status: satu istilah di semua tempat.
+// Sumber: PengajuanPencairan::semuaStatus() (dikirim controller).
+$labelStatus = (isset($labelStatus) && is_array($labelStatus) && $labelStatus)
+    ? $labelStatus
+    : [
+        'DIAJUKAN'   => 'Menunggu',
+        'DISETUJUI'  => 'Disetujui',
+        'DITOLAK'    => 'Ditolak',
+        'DICAIRKAN'  => 'Dicairkan',
+        'DIBATALKAN' => 'Dibatalkan',
+    ];
+
 // [label, kelas badge]
 $statusMeta = [
-    'DIAJUKAN'   => ['Ditunggu', 'b-amber'],
-    'DISETUJUI'  => ['Setuju', 'b-green'],
-    'DITOLAK'    => ['Ditolak', 'b-rose'],
-    'DICAIRKAN'  => ['Dicairkan', 'b-sky'],
-    'DIBATALKAN' => ['Dibatalkan', 'b-grey'],
+    'DIAJUKAN'   => [$labelStatus['DIAJUKAN'], 'b-amber'],
+    'DISETUJUI'  => [$labelStatus['DISETUJUI'], 'b-green'],
+    'DITOLAK'    => [$labelStatus['DITOLAK'], 'b-rose'],
+    'DICAIRKAN'  => [$labelStatus['DICAIRKAN'], 'b-sky'],
+    'DIBATALKAN' => [$labelStatus['DIBATALKAN'], 'b-grey'],
 ];
 
 
@@ -116,6 +128,8 @@ $menuAktif = 'pengelola/pencairan';
 $statistik = (isset($statistik) && is_array($statistik)) ? $statistik : [];
 $pengajuans = (isset($pengajuans) && is_array($pengajuans)) ? $pengajuans : [];
 $statusFilter = isset($statusFilter) ? (string) $statusFilter : '';
+$filterAktif = isset($filterAktif) ? (string) $filterAktif : $statusFilter;
+$filterParam = isset($filterParam) ? (string) $filterParam : $statusFilter;
 $page = isset($page) ? max(1, (int) $page) : 1;
 $totalPages = isset($totalPages) ? (int) $totalPages : 1;
 
@@ -123,17 +137,40 @@ $stat = function ($key) use ($statistik) {
     return (int) (isset($statistik[$key]['jumlah']) ? $statistik[$key]['jumlah'] : 0);
 };
 
+// Total pengajuan = jumlah dari kelima status, jadi sama dengan jumlah chip.
+$totalPengajuan = 0;
+foreach ($labelStatus as $statusKey => $statusLabel) {
+    $totalPengajuan += $stat($statusKey);
+}
+
+// Label badge: untuk pengajuan yang dibatalkan, tampilkan pelakunya.
+$badgeLabel = function (string $status, array $p) use ($statusMeta, $labelStatus) {
+    if ($status === 'DIBATALKAN') {
+        $pelaku = (isset($p['dibatalkan_oleh']) && $p['dibatalkan_oleh'] === 'PENGELOLA')
+            ? 'pengelola'
+            : 'nasabah';
+
+        return $labelStatus['DIBATALKAN'] . ' ' . $pelaku;
+    }
+
+    return isset($statusMeta[$status]) ? $statusMeta[$status][0] : $status;
+};
+
 $listUrl = base_url('pengelola/pencairan');
 $filters = [
-    ''           => 'Semua',
-    'DIAJUKAN'   => 'Menunggu',
-    'DISETUJUI'  => 'Disetujui',
-    'DITOLAK'    => 'Ditolak',
-    'DICAIRKAN'  => 'Dicairkan',
-    'DIBATALKAN' => 'Dibatalkan',
+    'DIAJUKAN,DISETUJUI' => 'Perlu ditindaklanjuti',
+    'SEMUA'              => 'Semua',
+    'DIAJUKAN'           => 'Menunggu',
+    'DISETUJUI'          => 'Disetujui',
+    'DITOLAK'            => 'Ditolak',
+    'DICAIRKAN'          => 'Dicairkan',
+    'DIBATALKAN'         => 'Dibatalkan',
 ];
-$pageUrl = function ($n) use ($statusFilter) {
-    return '?page=' . (int) $n . '&status=' . urlencode($statusFilter);
+$statusUrl = function ($status) use ($listUrl) {
+    return $listUrl . '?status=' . urlencode($status);
+};
+$pageUrl = function ($n) use ($filterParam) {
+    return '?page=' . (int) $n . '&status=' . urlencode($filterParam);
 };
 ?>
 <!DOCTYPE html>
@@ -333,12 +370,12 @@ $pageUrl = function ($n) use ($statusFilter) {
                 </div>
 
                 <section class="wallet" aria-label="Ringkasan pengajuan">
-                    <p class="wallet-label">Menunggu diproses</p>
-                    <p class="wallet-value"><?= $stat('DIAJUKAN') ?> pengajuan</p>
+                    <p class="wallet-label">Seluruh pengajuan</p>
+                    <p class="wallet-value">Total <?= $totalPengajuan ?> pengajuan</p>
                     <div class="chips">
-                        <a class="chip" href="<?= $e($listUrl . '?status=DISETUJUI') ?>">Disetujui <strong><?= $stat('DISETUJUI') ?></strong></a>
-                        <a class="chip" href="<?= $e($listUrl . '?status=DICAIRKAN') ?>">Dicairkan <strong><?= $stat('DICAIRKAN') ?></strong></a>
-                        <a class="chip" href="<?= $e($listUrl . '?status=DITOLAK') ?>">Ditolak <strong><?= $stat('DITOLAK') ?></strong></a>
+                        <?php foreach ($labelStatus as $statusKey => $statusLabel): ?>
+                            <a class="chip" href="<?= $e($statusUrl($statusKey)) ?>"><?= $e($statusLabel) ?> <strong><?= $stat($statusKey) ?></strong></a>
+                        <?php endforeach; ?>
                     </div>
                 </section>
 
@@ -349,7 +386,7 @@ $pageUrl = function ($n) use ($statusFilter) {
 
                 <nav class="pills" aria-label="Filter status">
                     <?php foreach ($filters as $val => $label): ?>
-                        <a class="pill" href="<?= $e($val === '' ? $listUrl : $listUrl . '?status=' . urlencode($val)) ?>"<?= ($statusFilter === $val) ? ' aria-current="true"' : '' ?>><?= $e($label) ?></a>
+                        <a class="pill" href="<?= $e($statusUrl($val)) ?>"<?= ($filterAktif === $val) ? ' aria-current="true"' : '' ?>><?= $e($label) ?></a>
                     <?php endforeach; ?>
                 </nav>
 
@@ -359,7 +396,7 @@ $pageUrl = function ($n) use ($statusFilter) {
                         <h2>Tidak ada pengajuan</h2>
                         <p><?= $statusFilter !== '' ? 'Tidak ada pengajuan dengan status ini. Coba pilih status lain.' : 'Pengajuan pencairan dari nasabah akan muncul di sini.' ?></p>
                         <?php if ($statusFilter !== ''): ?>
-                            <a href="<?= $e($listUrl) ?>" class="btn btn-ghost">Tampilkan semua</a>
+                            <a href="<?= $e($statusUrl('SEMUA')) ?>" class="btn btn-ghost">Tampilkan semua</a>
                         <?php endif; ?>
                     </div>
                 <?php else: ?>
@@ -376,7 +413,7 @@ $pageUrl = function ($n) use ($statusFilter) {
                                     <div class="row-main">
                                         <p class="row-title"><?= $e(isset($p['nama_nasabah']) ? $p['nama_nasabah'] : '-') ?></p>
                                         <span class="row-sub">
-                                            <span class="badge <?= $e($meta[1]) ?>"><?= $e($meta[0]) ?></span>
+                                            <span class="badge <?= $e($meta[1]) ?>"><?= $e($badgeLabel($st, $p)) ?></span>
                                             <span class="i"><?= icon('hash') ?><?= $e(isset($p['no_pengajuan']) ? $p['no_pengajuan'] : '-') ?></span>
                                             <?php if ($hp !== ''): ?><span class="i"><?= icon('phone') ?><?= $e($hp) ?></span><?php endif; ?>
                                             <span class="i"><?= icon('calendar') ?><?= $e(formatTanggal(isset($p['diajukan_at']) ? $p['diajukan_at'] : '')) ?></span>

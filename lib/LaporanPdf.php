@@ -141,7 +141,7 @@ class LaporanPdf
         // Summary
         $this->renderSectionHeader('RINGKASAN');
         $this->pdf->SetFont('helvetica', '', 10);
-        $this->pdf->Cell(60, 7, 'Menunggu Persetujuan:', 1, 0, 'L');
+        $this->pdf->Cell(60, 7, 'Menunggu:', 1, 0, 'L');
         $this->pdf->Cell(0, 7, ($statistik['DIAJUKAN']['jumlah'] ?? 0) . ' pengajuan', 1, 1, 'L');
         $this->pdf->Cell(60, 7, 'Disetujui:', 1, 0, 'L');
         $this->pdf->Cell(0, 7, ($statistik['DISETUJUI']['jumlah'] ?? 0) . ' pengajuan', 1, 1, 'L');
@@ -149,6 +149,8 @@ class LaporanPdf
         $this->pdf->Cell(0, 7, ($statistik['DITOLAK']['jumlah'] ?? 0) . ' pengajuan', 1, 1, 'L');
         $this->pdf->Cell(60, 7, 'Dicairkan:', 1, 0, 'L');
         $this->pdf->Cell(0, 7, ($statistik['DICAIRKAN']['jumlah'] ?? 0) . ' pengajuan', 1, 1, 'L');
+        $this->pdf->Cell(60, 7, 'Dibatalkan:', 1, 0, 'L');
+        $this->pdf->Cell(0, 7, ($statistik['DIBATALKAN']['jumlah'] ?? 0) . ' pengajuan', 1, 1, 'L');
         $this->pdf->Ln(8);
 
         // Detail table
@@ -310,7 +312,7 @@ class LaporanPdf
         $this->pdf->SetFont('helvetica', '', 10);
 
         $labelStatus = [
-            'DIAJUKAN' => 'Diajukan',
+            'DIAJUKAN' => 'Menunggu',
             'DISETUJUI' => 'Disetujui',
             'DITOLAK' => 'Ditolak',
             'DICAIRKAN' => 'Dicairkan',
@@ -381,7 +383,7 @@ class LaporanPdf
     private function labelStatus($status): string
     {
         $label = [
-            'DIAJUKAN' => 'Diajukan',
+            'DIAJUKAN' => 'Menunggu',
             'DISETUJUI' => 'Disetujui',
             'DITOLAK' => 'Ditolak',
             'DICAIRKAN' => 'Dicairkan',

@@ -3,8 +3,13 @@
  * Kelola Bank Sampah - Daftar
  * Compatible dengan PHP 7.3+
  *
- * Variabel dari controller: $flash, $banks
+ * Variabel dari controller: $flash, $banks, $relasiAktif, $csrfToken
  * $banks: tiap item berisi id, nama, alamat, desa_nama, penanggung_jawab, no_hp, status
+ * $relasiAktif: (opsional) peta id bank => ['pengelola' => int, 'nasabah' => int],
+ *               jumlah yang masih aktif, untuk peringatan saat menonaktifkan
+ * $csrfToken: (opsional) bila tidak ada dipakai csrf_token() jika fungsinya ada
+ *
+ * Aksi POST: admin/bank-sampah/status dengan field csrf_token, id, aksi (nonaktifkan | aktifkan)
  */
 
 if (!function_exists('icon')) {
@@ -19,6 +24,7 @@ if (!function_exists('icon')) {
             'grid' => '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
             'users' => '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
             'user' => '<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>',
+            'user-check' => '<circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0 1 6-6h2a6 6 0 0 1 6 6v1M16 11l2 2 4-4"/>',
             'building' => '<path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M16 9h2a2 2 0 0 1 2 2v10M2 21h20M8 7h4M8 11h4M8 15h4"/>',
             'pin' => '<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
             'file' => '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z"/><path d="M14 2v6h6M9 14h6M9 18h4"/>',
@@ -29,6 +35,7 @@ if (!function_exists('icon')) {
             'phone' => '<rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/>',
             'edit' => '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
             'trash' => '<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/>',
+            'power' => '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
             'check' => '<path d="M5 12.5l4.5 4.5L19 7"/>',
             'alert' => '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
             'info' => '<circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
@@ -73,6 +80,18 @@ $flashIcon = ['success' => 'check', 'error' => 'alert', 'warning' => 'alert', 'i
 $banks = (isset($banks) && is_array($banks)) ? $banks : [];
 $appName = defined('APP_NAME') ? APP_NAME : 'Bank Sampah';
 
+/* Token CSRF untuk form ubah status */
+if (isset($csrfToken)) {
+    $csrfToken = (string) $csrfToken;
+} elseif (function_exists('csrf_token')) {
+    $csrfToken = (string) csrf_token();
+} else {
+    $csrfToken = '';
+}
+
+/* Jumlah Pengelola dan nasabah aktif per bank sampah (untuk peringatan) */
+$relasiAktif = (isset($relasiAktif) && is_array($relasiAktif)) ? $relasiAktif : [];
+
 $totalBank = count($banks);
 $totalAktif = 0;
 foreach ($banks as $b) {
@@ -88,7 +107,7 @@ $menu = [
     ['admin/bank-sampah', 'Kelola Bank Sampah', 'building'],
     ['admin/desa',        'Kelola Desa',        'pin'],
     ['admin/audit-log',   'Audit Log',          'file'],
-    ['admin/pengaturan',  'Pengaturan',         'settings'],
+  //  ['admin/pengaturan',  'Pengaturan',         'settings'],
 ];
 $menuAktif = 'admin/bank-sampah';
 ?>
@@ -195,6 +214,8 @@ $menuAktif = 'admin/bank-sampah';
         .list { list-style:none; margin:0; padding:0; background:#fff; border:1px solid var(--line); border-radius:20px; overflow:hidden; }
         .brow { display:grid; grid-template-columns:46px minmax(0,1fr) auto auto; grid-template-areas:"ico main bdg acts"; gap:4px 16px; align-items:center; padding:14px 18px; border-bottom:1px solid var(--line); }
         .brow:last-child { border-bottom:0; }
+        .brow.is-off { background:#f6f8f5; }
+        .brow.is-off .ico { background:#e4e9e4; color:var(--ink-3); }
         .brow > .ico { grid-area:ico; }
         .b-main { grid-area:main; min-width:0; }
         .row-title { margin:0; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -204,12 +225,19 @@ $menuAktif = 'admin/bank-sampah';
         .meta { display:flex; flex-wrap:wrap; gap:2px 14px; margin-top:2px; }
         .meta .row-sub { margin:0; }
         .bdgs { grid-area:bdg; display:flex; justify-content:flex-end; }
-        .acts { grid-area:acts; display:flex; gap:6px; }
+        .acts { grid-area:acts; display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:6px; }
+        .acts form { margin:0; }
         .icon-btn { width:44px; height:44px; border-radius:12px; display:grid; place-items:center; border:1.5px solid var(--g-200); color:var(--g-800); background:#fff; text-decoration:none; transition:background .15s; }
         .icon-btn:hover { background:var(--g-100); }
         .icon-btn svg { width:20px; height:20px; }
         .icon-btn.danger { color:var(--rose); border-color:#f1b7b2; }
         .icon-btn.danger:hover { background:var(--rose-bg); }
+        .act-btn { display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:0 14px; border-radius:12px; border:1.5px solid var(--g-200); background:#fff; color:var(--g-800); font-size:.9375rem; font-weight:700; text-decoration:none; cursor:pointer; transition:background .15s; }
+        .act-btn:hover { background:var(--g-100); }
+        .act-btn svg { width:18px; height:18px; }
+        .act-btn.danger { color:var(--rose); border-color:#e59a94; }
+        .act-btn.danger:hover { background:var(--rose-bg); }
+        .act-btn[disabled] { opacity:.6; cursor:wait; }
 
         .empty { text-align:center; padding:40px 24px; background:#fff; border:1px solid var(--line); border-radius:20px; }
         .empty h3 { margin:0 0 4px; font-size:1.0625rem; }
@@ -220,8 +248,11 @@ $menuAktif = 'admin/bank-sampah';
             .topbar { padding:0 16px; }
             h1 { font-size:1.5rem; }
             .page-head .btn { width:100%; }
-            .brow { grid-template-columns:46px minmax(0,1fr) auto; grid-template-areas:"ico main acts" "ico bdg bdg"; padding:14px; }
+            .brow { grid-template-columns:46px minmax(0,1fr); grid-template-areas:"ico main" "ico bdg" "acts acts"; padding:14px; }
             .bdgs { justify-content:flex-start; margin-top:4px; }
+            .acts { justify-content:flex-start; margin-top:6px; }
+            .acts form { flex:1 1 auto; display:flex; }
+            .acts form .act-btn { flex:1; justify-content:center; }
         }
         @media (prefers-reduced-motion:reduce) { *, *::before, *::after { transition:none !important; animation:none !important; } }
     </style>
@@ -285,9 +316,34 @@ $menuAktif = 'admin/bank-sampah';
                                 $pj = trim((string) (isset($b['penanggung_jawab']) ? $b['penanggung_jawab'] : ''));
                                 $hp = trim((string) (isset($b['no_hp']) ? $b['no_hp'] : ''));
                                 $st = (string) (isset($b['status']) ? $b['status'] : '');
+                                $aktif = ($st === 'AKTIF');
                                 $bid = isset($b['id']) ? (string) $b['id'] : '';
+
+                                /* Teks konfirmasi dihitung di server dan hanya membantu pengguna.
+                                   Penjagaan sebenarnya (CSRF, status) ada di controller. */
+                                $rel = isset($relasiAktif[(int) $bid]) ? $relasiAktif[(int) $bid] : ['pengelola' => 0, 'nasabah' => 0];
+                                $jmlPengelola = (int) $rel['pengelola'];
+                                $jmlNasabah = (int) $rel['nasabah'];
+
+                                if ($aktif) {
+                                    $pesanKonfirmasi = 'Nonaktifkan bank sampah ' . $nama . '? Datanya tetap tersimpan.';
+                                    if ($jmlPengelola > 0 || $jmlNasabah > 0) {
+                                        $bagian = [];
+                                        if ($jmlPengelola > 0) {
+                                            $bagian[] = $jmlPengelola . ' Pengelola aktif';
+                                        }
+                                        if ($jmlNasabah > 0) {
+                                            $bagian[] = $jmlNasabah . ' nasabah aktif';
+                                        }
+                                        $pesanKonfirmasi .= ' Bank sampah ini masih punya ' . implode(' dan ', $bagian)
+                                            . ' (akun mereka tidak ikut dinonaktifkan).';
+                                    }
+                                    $pesanKonfirmasi .= ' Lanjutkan?';
+                                } else {
+                                    $pesanKonfirmasi = 'Aktifkan kembali bank sampah ' . $nama . '?';
+                                }
                             ?>
-                                <li class="brow">
+                                <li class="brow<?= $aktif ? '' : ' is-off' ?>">
                                     <span class="ico" aria-hidden="true"><?= icon('building') ?></span>
                                     <div class="b-main">
                                         <p class="row-title"><?= $e($nama !== '' ? $nama : '-') ?></p>
@@ -299,10 +355,22 @@ $menuAktif = 'admin/bank-sampah';
                                         </div>
                                     </div>
                                     <div class="bdgs">
-                                        <span class="badge <?= $st === 'AKTIF' ? 'b-green' : 'b-grey' ?>"><?= $st === 'AKTIF' ? 'Aktif' : ($st === '' ? '-' : $e(ucfirst(strtolower($st)))) ?></span>
+                                        <span class="badge <?= $aktif ? 'b-green' : 'b-grey' ?>"><?= $aktif ? 'Aktif' : ($st === '' ? '-' : $e(ucfirst(strtolower($st)))) ?></span>
                                     </div>
                                     <div class="acts">
                                         <a href="<?= base_url('admin/bank-sampah/edit?id=' . $bid) ?>" class="icon-btn" aria-label="Ubah <?= $e($nama) ?>" title="Ubah"><?= icon('edit') ?></a>
+
+                                        <form method="post" action="<?= $e(base_url('admin/bank-sampah/status')) ?>" data-confirm="<?= $e($pesanKonfirmasi) ?>">
+                                            <input type="hidden" name="csrf_token" value="<?= $e($csrfToken) ?>">
+                                            <input type="hidden" name="id" value="<?= $e($bid) ?>">
+                                            <input type="hidden" name="aksi" value="<?= $aktif ? 'nonaktifkan' : 'aktifkan' ?>">
+                                            <?php if ($aktif): ?>
+                                                <button type="submit" class="act-btn danger" aria-label="Nonaktifkan <?= $e($nama) ?>"><?= icon('power') ?>Nonaktifkan</button>
+                                            <?php else: ?>
+                                                <button type="submit" class="act-btn" aria-label="Aktifkan kembali <?= $e($nama) ?>"><?= icon('user-check') ?>Aktifkan</button>
+                                            <?php endif; ?>
+                                        </form>
+
                                         <a href="<?= base_url('admin/bank-sampah/delete?id=' . $bid) ?>" class="icon-btn danger" aria-label="Hapus <?= $e($nama) ?>" title="Hapus" onclick="return confirm('Yakin hapus bank sampah ini?')"><?= icon('trash') ?></a>
                                     </div>
                                 </li>
@@ -345,6 +413,19 @@ $menuAktif = 'admin/bank-sampah';
             }
         });
         if (mq.addEventListener) { mq.addEventListener('change', initial); } else if (mq.addListener) { mq.addListener(initial); }
+
+        /* Konfirmasi sebelum Nonaktifkan / Aktifkan */
+        var forms = document.querySelectorAll('form[data-confirm]');
+        Array.prototype.forEach.call(forms, function (f) {
+            f.addEventListener('submit', function (ev) {
+                if (!window.confirm(f.getAttribute('data-confirm'))) {
+                    ev.preventDefault();
+                    return;
+                }
+                var b = f.querySelector('button[type="submit"]');
+                if (b) { b.setAttribute('disabled', 'disabled'); }
+            });
+        });
     })();
     </script>
 </body>

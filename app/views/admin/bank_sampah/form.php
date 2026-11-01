@@ -111,7 +111,7 @@ $menu = [
     ['admin/bank-sampah', 'Kelola Bank Sampah', 'building'],
     ['admin/desa',        'Kelola Desa',        'pin'],
     ['admin/audit-log',   'Audit Log',          'file'],
-    ['admin/pengaturan',  'Pengaturan',         'settings'],
+  //  ['admin/pengaturan',  'Pengaturan',         'settings'],
 ];
 $menuAktif = 'admin/bank-sampah';
 ?>

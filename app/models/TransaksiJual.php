@@ -23,9 +23,11 @@
  * - Nomor transaksi dicoba ulang bila bentrok (butuh UNIQUE INDEX, lihat bawah).
  * - Pengurangan stok tidak bisa membuat stok negatif.
  * - Pengembalian stok saat pembatalan memastikan baris stok ada.
+ * - Ditambahkan countByBankSampah() untuk paging daftar dengan filter tanggal.
  *
  * Disarankan (jalankan sekali di database):
  *   ALTER TABLE transaksi_jual ADD UNIQUE KEY uq_no_transaksi (no_transaksi);
+ *   ALTER TABLE transaksi_jual ADD KEY idx_bank_tanggal (bank_sampah_id, tanggal);
  *
  * Compatible dengan PHP 7.3+
  */
@@ -630,13 +632,46 @@ class TransaksiJual
         $stmt = $this->db->prepare($sql);
         foreach ($params as $key => $value) {
             if ($key === 'limit' || $key === 'offset') {
-                $stmt->bindValue($key, $value, PDO::PARAM_INT);
+                $stmt->bindValue($key, (int) $value, PDO::PARAM_INT);
             } else {
                 $stmt->bindValue($key, $value);
             }
         }
         $stmt->execute();
         return $stmt->fetchAll();
+    }
+
+    /**
+     * Hitung jumlah transaksi (untuk paging). Syarat filter sama dengan
+     * getByBankSampah() supaya jumlah halaman akurat.
+     *
+     * @param int         $bankSampahId
+     * @param string|null $tanggalFrom
+     * @param string|null $tanggalTo
+     * @param string|null $status
+     * @return int
+     */
+    public function countByBankSampah($bankSampahId, $tanggalFrom = null, $tanggalTo = null, $status = null): int
+    {
+        $sql = "SELECT COUNT(*) FROM transaksi_jual tj WHERE tj.bank_sampah_id = :bank_id";
+        $params = ['bank_id' => $bankSampahId];
+
+        if ($tanggalFrom) {
+            $sql .= " AND tj.tanggal >= :tanggal_from";
+            $params['tanggal_from'] = $tanggalFrom . ' 00:00:00';
+        }
+        if ($tanggalTo) {
+            $sql .= " AND tj.tanggal <= :tanggal_to";
+            $params['tanggal_to'] = $tanggalTo . ' 23:59:59';
+        }
+        if ($status !== null) {
+            $sql .= " AND tj.status = :status";
+            $params['status'] = $status;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return (int) $stmt->fetchColumn();
     }
 
     /**

@@ -34,6 +34,19 @@ class PengajuanPencairan
     const STATUS_DICAIRKAN = 'DICAIRKAN';
     const STATUS_DIBATALKAN = 'DIBATALKAN';
 
+    // Label status yang dipakai di seluruh UI.
+    // Satu istilah untuk satu status (lihat PROSES_BISNIS.md bagian 3).
+    // "Ditunggu" tidak dipakai lagi; yang dipakai adalah "Menunggu".
+    const LABEL_DIAJUKAN = 'Menunggu';
+    const LABEL_DISETUJUI = 'Disetujui';
+    const LABEL_DITOLAK = 'Ditolak';
+    const LABEL_DICAIRKAN = 'Dicairkan';
+    const LABEL_DIBATALKAN = 'Dibatalkan';
+
+    // Pelaku pembatalan (kolom dibatalkan_oleh)
+    const PELAKU_NASABAH = 'NASABAH';
+    const PELAKU_PENGELOLA = 'PENGELOLA';
+
     public function __construct($db = null)
     {
         $this->db = $db ?? getDbConnection();
@@ -47,6 +60,108 @@ class PengajuanPencairan
     public function getLastError(): ?string
     {
         return $this->lastError;
+    }
+
+    /**
+     * Semua status pencairan beserta label UI-nya.
+     *
+     * Dipakai sebagai sumber kebenaran istilah status supaya tab filter,
+     * badge, chip, dan halaman detail memakai kata yang sama.
+     *
+     * @return array status => label
+     */
+    public static function semuaStatus(): array
+    {
+        return [
+            self::STATUS_DIAJUKAN   => self::LABEL_DIAJUKAN,
+            self::STATUS_DISETUJUI  => self::LABEL_DISETUJUI,
+            self::STATUS_DITOLAK    => self::LABEL_DITOLAK,
+            self::STATUS_DICAIRKAN  => self::LABEL_DICAIRKAN,
+            self::STATUS_DIBATALKAN => self::LABEL_DIBATALKAN,
+        ];
+    }
+
+    /**
+     * Label UI dari suatu status.
+     *
+     * @param string|null $status
+     * @return string
+     */
+    public static function labelStatus(?string $status): string
+    {
+        $status = (string) $status;
+        $map = self::semuaStatus();
+
+        return $map[$status] ?? ($status !== '' ? $status : '-');
+    }
+
+    /**
+     * Transisi status yang sah.
+     *
+     * DITOLAK, DICAIRKAN, dan DIBATALKAN bersifat final: begitu sudah
+     * sampai ke sana, statusnya tidak bisa diubah lagi.
+     *
+     * @return array status asal => daftar status tujuan yang sah
+     */
+    public static function transisi(): array
+    {
+        return [
+            self::STATUS_DIAJUKAN   => [self::STATUS_DISETUJUI, self::STATUS_DITOLAK, self::STATUS_DIBATALKAN],
+            self::STATUS_DISETUJUI  => [self::STATUS_DICAIRKAN, self::STATUS_DIBATALKAN],
+            self::STATUS_DITOLAK    => [],
+            self::STATUS_DICAIRKAN  => [],
+            self::STATUS_DIBATALKAN => [],
+        ];
+    }
+
+    /**
+     * Apakah perubahan status dari $dari ke $ke diperbolehkan.
+     *
+     * @param string|null $dari
+     * @param string      $ke
+     * @return bool
+     */
+    public static function bolehTransisi(?string $dari, string $ke): bool
+    {
+        $transisi = self::transisi();
+        $dari = (string) $dari;
+
+        if (!isset($transisi[$dari])) {
+            return false;
+        }
+
+        return in_array($ke, $transisi[$dari], true);
+    }
+
+    /**
+     * Status yang tidak bisa diubah lagi.
+     *
+     * @param string|null $status
+     * @return bool
+     */
+    public static function statusFinal(?string $status): bool
+    {
+        $transisi = self::transisi();
+        $status = (string) $status;
+
+        return isset($transisi[$status]) && empty($transisi[$status]);
+    }
+
+    /**
+     * Pesan error untuk transisi yang tidak sah.
+     *
+     * @param string $dari
+     * @param string $ke
+     * @return string
+     */
+    public static function pesanTransisiDitolak(string $dari, string $ke): string
+    {
+        if (self::statusFinal($dari)) {
+            return 'Pengajuan yang sudah ' . strtolower(self::labelStatus($dari)) . ' tidak bisa diubah lagi.';
+        }
+
+        return 'Status pengajuan tidak bisa diubah dari "' . self::labelStatus($dari)
+            . '" ke "' . self::labelStatus($ke) . '".';
     }
 
     /**
@@ -263,51 +378,309 @@ class PengajuanPencairan
     }
 
     /**
-     * Update status pengajuan
+     * Core perubahan status: validasi transisi, ubah status, catat audit
+     * log, lalu kirim notifikasi ke nasabah. Semua dalam satu transaksi.
+     *
+     * Validasi transisi dilakukan di sini (bukan hanya menyembunyikan
+     * tombol di UI), jadi permintaan langsung ke server tetap ditolak.
+     *
+     * @param int         $id
+     * @param string      $statusBaru
+     * @param int|null    $userId Pelaku perubahan status
+     * @param array       $opsi [
+     *     'alasan'         => string|null,
+     *     'pelaku_batal'   => string|null (NASABAH|PENGELOLA),
+     *     'kirim_notifikasi' => bool
+     * ]
+     * @return bool
+     */
+    private function ubahStatus(int $id, string $statusBaru, $userId = null, array $opsi = []): bool
+    {
+        $this->lastError = null;
+
+        $this->db->beginTransaction();
+
+        try {
+            $stmt = $this->db->prepare("
+                SELECT p.*, n.user_id as nasabah_user_id, n.nama as nama_nasabah
+                FROM pengajuan_pencairan p
+                JOIN nasabah n ON n.id = p.nasabah_id
+                WHERE p.id = :id
+                FOR UPDATE
+            ");
+            $stmt->execute(['id' => $id]);
+            $pengajuan = $stmt->fetch();
+
+            if (!$pengajuan) {
+                throw new RuntimeException('Pengajuan tidak ditemukan.');
+            }
+
+            $statusLama = (string) $pengajuan['status'];
+
+            // DICAIRKAN hanya boleh lewat cairkan(): di sana saldo nasabah
+            // dikurangi dan mutasi PENCAIRAN dicatat dalam satu transaksi.
+            // Lewat jalur lain saldo bisa turun tanpa mutasi (atau sebaliknya).
+            if ($statusBaru === self::STATUS_DICAIRKAN) {
+                throw new RuntimeException('Status Dicairkan hanya bisa lewat proses pencairan.');
+            }
+
+            if (!self::bolehTransisi($statusLama, $statusBaru)) {
+                throw new RuntimeException(self::pesanTransisiDitolak($statusLama, $statusBaru));
+            }
+
+            // Alasan wajib untuk penolakan dan pembatalan.
+            $alasan = isset($opsi['alasan']) ? trim((string) $opsi['alasan']) : '';
+
+            if ($statusBaru === self::STATUS_DITOLAK && $alasan === '') {
+                throw new RuntimeException('Alasan penolakan harus diisi.');
+            }
+            if ($statusBaru === self::STATUS_DIBATALKAN && $alasan === '') {
+                throw new RuntimeException('Alasan pembatalan harus diisi.');
+            }
+
+            $now = date('Y-m-d H:i:s');
+
+            $sql = "UPDATE pengajuan_pencairan
+                    SET status = :status,
+                        diproses_at = :diproses_at,
+                        diproses_oleh = :diproses_oleh";
+            $params = [
+                'status' => $statusBaru,
+                'diproses_at' => $now,
+                'diproses_oleh' => $userId !== null ? (int) $userId : null,
+                'id' => $id,
+            ];
+
+            if ($statusBaru === self::STATUS_DITOLAK) {
+                $sql .= ", alasan_tolak = :alasan_tolak";
+                $params['alasan_tolak'] = $alasan;
+            }
+
+            if ($statusBaru === self::STATUS_DIBATALKAN) {
+                $pelakuBatal = isset($opsi['pelaku_batal']) ? (string) $opsi['pelaku_batal'] : self::PELAKU_NASABAH;
+                $sql .= ", alasan_batal = :alasan_batal,
+                               dibatalkan_at = :dibatalkan_at,
+                               dibatalkan_oleh = :dibatalkan_oleh";
+                $params['alasan_batal'] = $alasan;
+                $params['dibatalkan_at'] = $now;
+                $params['dibatalkan_oleh'] = $pelakuBatal;
+            }
+
+            $sql .= " WHERE id = :id";
+
+            $this->db->prepare($sql)->execute($params);
+
+            // Audit log: pelaku, nilai lama, dan nilai baru (NFR-08).
+            $sesudah = ['status' => $statusBaru];
+            if ($alasan !== '') {
+                $sesudah['alasan'] = $alasan;
+            }
+            if ($statusBaru === self::STATUS_DIBATALKAN) {
+                $sesudah['dibatalkan_oleh'] = $params['dibatalkan_oleh'];
+            }
+
+            $this->db->prepare("
+                INSERT INTO audit_log (user_id, aksi, tabel, record_id, sebelum, sesudah)
+                VALUES (:user_id, :aksi, 'pengajuan_pencairan', :record_id, :sebelum, :sesudah)
+            ")->execute([
+                'user_id' => $userId !== null ? (int) $userId : null,
+                'aksi' => self::namaAksi($statusBaru),
+                'record_id' => $id,
+                'sebelum' => json_encode(['status' => $statusLama]),
+                'sesudah' => json_encode($sesudah),
+            ]);
+
+            // Notifikasi ke nasabah (FR-07).
+            $kirimNotifikasi = array_key_exists('kirim_notifikasi', $opsi)
+                ? (bool) $opsi['kirim_notifikasi']
+                : true;
+
+            if ($kirimNotifikasi && !empty($pengajuan['nasabah_user_id'])) {
+                $pesan = self::pesanNotifikasi($statusBaru, $pengajuan, $alasan, $params['dibatalkan_oleh'] ?? null);
+                $this->db->prepare("
+                    INSERT INTO notifikasi (user_id, judul, isi, tipe)
+                    VALUES (:user_id, :judul, :isi, :tipe)
+                ")->execute([
+                    'user_id' => (int) $pengajuan['nasabah_user_id'],
+                    'judul' => $pesan['judul'],
+                    'isi' => $pesan['isi'],
+                    'tipe' => $pesan['tipe'],
+                ]);
+            }
+
+            $this->db->commit();
+
+            return true;
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            $this->lastError = $e->getMessage();
+            error_log('[PengajuanPencairan::ubahStatus] gagal: ' . $e->getMessage());
+
+            return false;
+        }
+    }
+
+    /**
+     * Nama aksi untuk audit log.
+     *
+     * @param string $status
+     * @return string
+     */
+    private static function namaAksi(string $status): string
+    {
+        $peta = [
+            self::STATUS_DISETUJUI  => 'SETUJUI',
+            self::STATUS_DITOLAK    => 'TOLAK',
+            self::STATUS_DICAIRKAN  => 'DICAIRKAN',
+            self::STATUS_DIBATALKAN => 'BATAL',
+        ];
+
+        return $peta[$status] ?? $status;
+    }
+
+    /**
+     * Judul, isi, dan tipe notifikasi untuk perubahan status tertentu.
+     *
+     * @param string $status
+     * @param array  $pengajuan
+     * @param string $alasan
+     * @param string|null $pelakuBatal NASABAH|PENGELOLA (untuk status DIBATALKAN)
+     * @return array ['judul' => string, 'isi' => string, 'tipe' => string]
+     */
+    private static function pesanNotifikasi(string $status, array $pengajuan, string $alasan, ?string $pelakuBatal = null): array
+    {
+        $no = (string) ($pengajuan['no_pengajuan'] ?? '-');
+        $jumlah = formatRupiahCents((int) toCents($pengajuan['jumlah'] ?? 0));
+
+        switch ($status) {
+            case self::STATUS_DISETUJUI:
+                return [
+                    'judul' => 'Pengajuan pencairan disetujui',
+                    'isi' => 'Pengajuan ' . $no . ' sebesar ' . $jumlah . ' telah disetujui dan siap dicairkan.',
+                    'tipe' => 'PENCAIRAN_DISETUJUI',
+                ];
+
+            case self::STATUS_DITOLAK:
+                return [
+                    'judul' => 'Pengajuan pencairan ditolak',
+                    'isi' => 'Pengajuan ' . $no . ' ditolak. Alasan: ' . $alasan,
+                    'tipe' => 'PENCAIRAN_DITOLAK',
+                ];
+
+            case self::STATUS_DIBATALKAN:
+                $pelaku = $pelakuBatal === self::PELAKU_PENGELOLA ? 'pengelola' : 'nasabah';
+
+                return [
+                    'judul' => 'Pengajuan pencairan dibatalkan',
+                    'isi' => 'Pengajuan ' . $no . ' dibatalkan oleh ' . $pelaku . '. Alasan: ' . $alasan,
+                    'tipe' => 'PENCAIRAN_DIBATALKAN',
+                ];
+
+            case self::STATUS_DICAIRKAN:
+                return [
+                    'judul' => 'Pencairan dicairkan',
+                    'isi' => 'Pengajuan ' . $no . ' sebesar ' . $jumlah . ' telah dicairkan.',
+                    'tipe' => 'PENCAIRAN_DICAIRKAN',
+                ];
+        }
+
+        return ['judul' => 'Status pengajuan pencairan diperbarui', 'isi' => 'Pengajuan ' . $no . '.', 'tipe' => 'PENCAIRAN'];
+    }
+
+    /**
+     * Setujui pengajuan yang berstatus DIAJUKAN (Menunggu).
+     *
+     * @param int $id
+     * @param int $userId
+     * @return bool
+     */
+    public function setujui(int $id, int $userId): bool
+    {
+        return $this->ubahStatus($id, self::STATUS_DISETUJUI, $userId);
+    }
+
+    /**
+     * Tolak pengajuan yang berstatus DIAJUKAN (Menunggu).
+     *
+     * @param int    $id
+     * @param int    $userId
+     * @param string $alasan Wajib diisi
+     * @return bool
+     */
+    public function tolak(int $id, int $userId, string $alasan): bool
+    {
+        return $this->ubahStatus($id, self::STATUS_DITOLAK, $userId, ['alasan' => $alasan]);
+    }
+
+    /**
+     * Batalkan pengajuan oleh nasabah.
+     *
+     * Nasabah hanya bisa membatalkan pengajuan yang masih DIAJUKAN
+     * (Menunggu). Saldo yang tertahan dilepas kembali karena pengajuan
+     * tidak lagi berstatus DIAJUKAN/DISETUJUI.
+     *
+     * @param int    $id
+     * @param int    $userId
+     * @param string $alasan
+     * @return bool
+     */
+    public function batalkanNasabah(int $id, int $userId, string $alasan = 'Dibatalkan oleh nasabah'): bool
+    {
+        return $this->ubahStatus($id, self::STATUS_DIBATALKAN, $userId, [
+            'alasan' => $alasan,
+            'pelaku_batal' => self::PELAKU_NASABAH,
+            // Nasabah yang membatalkan, jadi tidak perlu notifikasi ke dirinya.
+            'kirim_notifikasi' => false,
+        ]);
+    }
+
+    /**
+     * Batalkan pengajuan oleh pengelola (hanya dari status DISETUJUI).
+     *
+     * Alasan pembatalan wajib diisi dan dikirim ke nasabah lewat notifikasi.
+     * Saldo yang tertahan dilepas kembali karena pengajuan tidak lagi
+     * berstatus DISETUJUI.
+     *
+     * @param int    $id
+     * @param int    $userId
+     * @param string $alasan Wajib diisi
+     * @return bool
+     */
+    public function batalkanPengelola(int $id, int $userId, string $alasan): bool
+    {
+        return $this->ubahStatus($id, self::STATUS_DIBATALKAN, $userId, [
+            'alasan' => $alasan,
+            'pelaku_batal' => self::PELAKU_PENGELOLA,
+        ]);
+    }
+
+    /**
+     * Update status pengajuan.
+     *
+     * kept for backward compatibility: perubahan status divalidasi di
+     * sisi server, jadi hanya transisi yang sah yang bisa lewat.
      *
      * @param int         $id
      * @param string      $status
      * @param int|null    $processedBy User ID yang memproses
-     * @param string|null $alasan Alasan penolakan (jika ditolak)
+     * @param string|null $alasan Alasan (wajib untuk DITOLAK dan DIBATALKAN)
+     * @param string|null $dibatalkanOleh NASABAH|PENGELOLA (untuk DIBATALKAN)
      * @return bool
      */
-    public function updateStatus(int $id, string $status, $processedBy = null, $alasan = null): bool
+    public function updateStatus(int $id, string $status, $processedBy = null, ?string $alasan = null, ?string $dibatalkanOleh = null): bool
     {
-        $now = date('Y-m-d H:i:s');
+        $opsi = [];
 
-        $sql = "UPDATE pengajuan_pencairan SET status = :status, diproses_at = :diproses_at";
-
-        $params = [
-            'status' => $status,
-            'diproses_at' => $now,
-            'id' => $id
-        ];
-
-        if ($processedBy !== null) {
-            $sql .= ", diproses_oleh = :diproses_oleh";
-            $params['diproses_oleh'] = $processedBy;
+        if ($alasan !== null) {
+            $opsi['alasan'] = $alasan;
+        }
+        if ($dibatalkanOleh !== null) {
+            $opsi['pelaku_batal'] = $dibatalkanOleh;
         }
 
-        if ($status === self::STATUS_DITOLAK && $alasan !== null) {
-            $sql .= ", alasan_tolak = :alasan_tolak";
-            $params['alasan_tolak'] = $alasan;
-        }
-
-        if ($status === self::STATUS_DIBATALKAN) {
-            $sql .= ", alasan_batal = :alasan_batal, dibatalkan_at = :dibatalkan_at";
-            $params['alasan_batal'] = $alasan;
-            $params['dibatalkan_at'] = $now;
-        }
-
-        if ($status === self::STATUS_DICAIRKAN) {
-            $sql .= ", dicairkan_at = :dicairkan_at";
-            $params['dicairkan_at'] = $now;
-        }
-
-        $sql .= " WHERE id = :id";
-
-        $stmt = $this->db->prepare($sql);
-        return $stmt->execute($params);
+        return $this->ubahStatus($id, $status, $processedBy, $opsi);
     }
 
     /**
@@ -341,11 +714,9 @@ class PengajuanPencairan
             if (!$pengajuan) {
                 throw new RuntimeException('Pengajuan tidak ditemukan.');
             }
-            if ($pengajuan['status'] === self::STATUS_DICAIRKAN) {
-                throw new RuntimeException('Pengajuan ini sudah dicairkan.');
-            }
-            if ($pengajuan['status'] !== self::STATUS_DISETUJUI) {
-                throw new RuntimeException('Pengajuan belum disetujui.');
+            $statusLama = (string) $pengajuan['status'];
+            if (!self::bolehTransisi($statusLama, self::STATUS_DICAIRKAN)) {
+                throw new RuntimeException(self::pesanTransisiDitolak($statusLama, self::STATUS_DICAIRKAN));
             }
 
             $nasabahId = (int) $pengajuan['nasabah_id'];
@@ -396,7 +767,7 @@ class PengajuanPencairan
             ")->execute([
                 'user_id' => $userId,
                 'record_id' => $id,
-                'sebelum' => json_encode(['status' => self::STATUS_DISETUJUI]),
+                'sebelum' => json_encode(['status' => $statusLama]),
                 'sesudah' => json_encode([
                     'status' => self::STATUS_DICAIRKAN,
                     'jumlah' => fromCents($jumlahCents),
@@ -408,7 +779,7 @@ class PengajuanPencairan
             if (!empty($pengajuan['nasabah_user_id'])) {
                 $this->db->prepare("
                     INSERT INTO notifikasi (user_id, judul, isi, tipe)
-                    VALUES (:user_id, :judul, :isi, 'PENCAIRAN')
+                    VALUES (:user_id, :judul, :isi, 'PENCAIRAN_DICAIRKAN')
                 ")->execute([
                     'user_id' => (int) $pengajuan['nasabah_user_id'],
                     'judul' => 'Pencairan dicairkan',
@@ -433,7 +804,10 @@ class PengajuanPencairan
     }
 
     /**
-     * Batalkan pengajuan yang masih berstatus DIAJUKAN (FR-08).
+     * Batalkan pengajuan yang masih berstatus DIAJUKAN (Menunggu).
+     *
+     * Dipertahankan sebagai pembungkus batalkanNasabah() supaya kode lama
+     * yang memanggil method ini tetap bekerja.
      *
      * @param int    $id
      * @param int    $userId
@@ -442,61 +816,7 @@ class PengajuanPencairan
      */
     public function batalkan(int $id, int $userId, string $alasan = 'Dibatalkan oleh nasabah'): bool
     {
-        $this->lastError = null;
-
-        $this->db->beginTransaction();
-
-        try {
-            $stmt = $this->db->prepare("
-                SELECT p.*, n.user_id as nasabah_user_id
-                FROM pengajuan_pencairan p
-                JOIN nasabah n ON n.id = p.nasabah_id
-                WHERE p.id = :id
-                FOR UPDATE
-            ");
-            $stmt->execute(['id' => $id]);
-            $pengajuan = $stmt->fetch();
-
-            if (!$pengajuan) {
-                throw new RuntimeException('Pengajuan tidak ditemukan.');
-            }
-            if ($pengajuan['status'] !== self::STATUS_DIAJUKAN) {
-                throw new RuntimeException('Hanya pengajuan yang masih menunggu yang bisa dibatalkan.');
-            }
-
-            $this->db->prepare("
-                UPDATE pengajuan_pencairan
-                SET status = 'DIBATALKAN', alasan_batal = :alasan, dibatalkan_at = NOW(),
-                    diproses_at = NOW(), diproses_oleh = :user_id
-                WHERE id = :id
-            ")->execute([
-                'alasan' => $alasan,
-                'user_id' => $userId,
-                'id' => $id,
-            ]);
-
-            $this->db->prepare("
-                INSERT INTO audit_log (user_id, aksi, tabel, record_id, sebelum, sesudah)
-                VALUES (:user_id, 'BATAL', 'pengajuan_pencairan', :record_id, :sebelum, :sesudah)
-            ")->execute([
-                'user_id' => $userId,
-                'record_id' => $id,
-                'sebelum' => json_encode(['status' => self::STATUS_DIAJUKAN]),
-                'sesudah' => json_encode(['status' => self::STATUS_DIBATALKAN, 'alasan' => $alasan]),
-            ]);
-
-            $this->db->commit();
-
-            return true;
-        } catch (Throwable $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            $this->lastError = $e->getMessage();
-            error_log('[PengajuanPencairan::batalkan] gagal: ' . $e->getMessage());
-
-            return false;
-        }
+        return $this->batalkanNasabah($id, $userId, $alasan);
     }
 
     /**
@@ -546,13 +866,13 @@ class PengajuanPencairan
     /**
      * Ambil semua pengajuan pencairan (untuk admin/pengelola)
      *
-     * @param int|null    $bankSampahId Filter berdasarkan bank sampah (null = semua)
-     * @param string|null $status Filter berdasarkan status
-     * @param int         $limit
-     * @param int         $offset
+     * @param int|null            $bankSampahId Filter berdasarkan bank sampah (null = semua)
+     * @param string|array|null   $status Filter status (string tunggal atau daftar status)
+     * @param int                 $limit
+     * @param int                 $offset
      * @return array
      */
-    public function getAll(?int $bankSampahId = null, ?string $status = null, int $limit = 50, int $offset = 0): array
+    public function getAll(?int $bankSampahId = null, $status = null, int $limit = 50, int $offset = 0): array
     {
         $sql = "
             SELECT
@@ -565,6 +885,8 @@ class PengajuanPencairan
                 p.status,
                 p.alasan_tolak,
                 p.alasan_batal,
+                p.dibatalkan_oleh,
+                p.dibatalkan_at,
                 p.diajukan_at,
                 p.diproses_at,
                 p.diproses_oleh,
@@ -589,9 +911,14 @@ class PengajuanPencairan
             $params['bank_sampah_id'] = $bankSampahId;
         }
 
-        if ($status !== null) {
-            $sql .= " AND p.status = :status";
-            $params['status'] = $status;
+        $daftarStatus = self::normalisasiStatusFilter($status);
+        if ($daftarStatus !== []) {
+            $placeholder = [];
+            foreach ($daftarStatus as $i => $s) {
+                $placeholder[] = ':status_' . $i;
+                $params['status_' . $i] = $s;
+            }
+            $sql .= " AND p.status IN (" . implode(', ', $placeholder) . ")";
         }
 
         $sql .= " ORDER BY p.diajukan_at DESC, p.id DESC LIMIT :limit OFFSET :offset";
@@ -610,11 +937,11 @@ class PengajuanPencairan
     /**
      * Hitung total pengajuan dengan filter
      *
-     * @param int|null    $bankSampahId
-     * @param string|null $status
+     * @param int|null          $bankSampahId
+     * @param string|array|null $status Status tunggal atau daftar status
      * @return int
      */
-    public function countAll(?int $bankSampahId = null, ?string $status = null): int
+    public function countAll(?int $bankSampahId = null, $status = null): int
     {
         $sql = "SELECT COUNT(*) as total FROM pengajuan_pencairan p
                 LEFT JOIN nasabah n ON p.nasabah_id = n.id WHERE 1=1";
@@ -625,9 +952,14 @@ class PengajuanPencairan
             $params['bank_sampah_id'] = $bankSampahId;
         }
 
-        if ($status !== null) {
-            $sql .= " AND p.status = :status";
-            $params['status'] = $status;
+        $daftarStatus = self::normalisasiStatusFilter($status);
+        if ($daftarStatus !== []) {
+            $placeholder = [];
+            foreach ($daftarStatus as $i => $s) {
+                $placeholder[] = ':status_' . $i;
+                $params['status_' . $i] = $s;
+            }
+            $sql .= " AND p.status IN (" . implode(', ', $placeholder) . ")";
         }
 
         $stmt = $this->db->prepare($sql);
@@ -635,6 +967,36 @@ class PengajuanPencairan
         $result = $stmt->fetch();
 
         return (int) ($result['total'] ?? 0);
+    }
+
+    /**
+     * Normalisasi filter status.
+     *
+     * Menerima string tunggal ("DIAJUKAN"), daftar status (array), atau
+     * daftar dipisah koma/spasi ("DIAJUKAN,DISETUJUI"). Status yang tidak
+     * dikenal dibuang supaya query tetap aman.
+     *
+     * @param string|array|null $status
+     * @return string[]
+     */
+    private static function normalisasiStatusFilter($status): array
+    {
+        if ($status === null || $status === '' || $status === []) {
+            return [];
+        }
+
+        $daftar = is_array($status) ? $status : preg_split('/[\s,]+/', (string) $status);
+        $valid = self::semuaStatus();
+        $hasil = [];
+
+        foreach ($daftar as $s) {
+            $s = trim((string) $s);
+            if ($s !== '' && isset($valid[$s]) && !in_array($s, $hasil, true)) {
+                $hasil[] = $s;
+            }
+        }
+
+        return $hasil;
     }
 
     /**

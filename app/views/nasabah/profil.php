@@ -65,7 +65,7 @@ $appName = defined('APP_NAME') ? APP_NAME : 'Bank Sampah';
 $flashTipe = isset($flash) && $flash && isset($flash['type']) ? strtolower((string) $flash['type']) : '';
 $flashClass = in_array($flashTipe, ['success', 'error', 'warning', 'info'], true) ? $flashTipe : 'info';
 
-// Notifikasi dalam aplikasi (lonceng saja; pop-up hanya di halaman cairkan)
+// Notifikasi dalam aplikasi (lonceng + pop-up)
 require_once VIEW_PATH . '/nasabah/partials/notifikasi.php';
 ?>
 <!DOCTYPE html>
@@ -326,6 +326,8 @@ if (window.__navOpen) { document.body.classList.add('nav-open'); }
 <div class="scrim" id="scrim"></div>
 
 <?php $menuAktif = 'nasabah/profil'; include VIEW_PATH . '/nasabah/partials/sidebar.php'; ?>
+
+<?php notifikasiPopup(); ?>
 
 <div class="main">
     <header class="topbar">

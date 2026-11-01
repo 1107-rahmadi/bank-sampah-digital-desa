@@ -1,10 +1,22 @@
 <?php
 /**
- * nasabah/index.php
- * Kelola Nasabah - Daftar
+ * admin/nasabah/index.php
+ * Kelola Nasabah (Admin) - Daftar
  * Compatible dengan PHP 7.3+
  *
- * Variabel dari controller: $nasabahList, $totalNasabah, $totalPages, $page, $offset, $flash (opsional)
+ * Admin dapat menambah, mengubah, menonaktifkan, dan mengaktifkan kembali nasabah.
+ * Nasabah tidak pernah dihapus (FR-29).
+ *
+ * Variabel dari controller:
+ *   $nasabahList    : baris nasabah (id, user_id, nama, no_anggota, no_hp, tipe, status, saldo, bank_sampah_nama)
+ *   $totalNasabah, $totalPages, $page, $offset
+ *   $pengajuanAktif : (opsional) peta id nasabah => ['jumlah' => float, 'jumlah_pengajuan' => int]
+ *                     dari Nasabah::getPengajuanAktifPeta(), untuk peringatan saat menonaktifkan
+ *   $csrfToken      : (opsional) bila tidak ada dipakai csrfToken()
+ *   $flash          : (opsional)
+ *
+ * Tautan: admin/nasabah/add, admin/nasabah/edit?id=
+ * Aksi POST: admin/nasabah/status dengan field csrf_token, id, aksi (nonaktifkan | aktifkan)
  */
 
 if (!function_exists('icon')) {
@@ -27,6 +39,7 @@ if (!function_exists('icon')) {
             'alert' => '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
             'building' => '<path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M16 9h2a2 2 0 0 1 2 2v10M2 21h20M8 7h4M8 11h4M8 15h4"/>',
             'pin' => '<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+            'file' => '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z"/><path d="M14 2v6h6M9 14h6M9 18h4"/>',
             'settings' => '<path d="M4 6h8M16 6h4M4 12h4M12 12h8M4 18h10M18 18h2"/><circle cx="14" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="16" cy="18" r="2"/>',
             'plus' => '<path d="M12 5v14M5 12h14"/>',
             'user-plus' => '<circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0 1 6-6h2a6 6 0 0 1 6 6v1M19 8v6M16 11h6"/>',
@@ -35,6 +48,12 @@ if (!function_exists('icon')) {
             'info' => '<circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
             'edit' => '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
             'trash' => '<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/>',
+            'key' => '<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2L21 2M17 6l3 3M14 9l2 2"/>',
+            'lock' => '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+            'power' => '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
+            'refresh' => '<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/>',
+            'eye' => '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+            'eye-off' => '<path d="M17.9 17.9A10.1 10.1 0 0 1 12 19c-6.5 0-10-7-10-7a18 18 0 0 1 4.1-5.1M9.9 5.2A9.7 9.7 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-2.2 3.2"/><path d="M14.1 14.1a3 3 0 1 1-4.2-4.2"/><line x1="2" y1="2" x2="22" y2="22"/>',
         ];
 
         $body = isset($paths[$name]) ? $paths[$name] : $paths['info'];
@@ -62,6 +81,8 @@ $label = function ($v) {
     $v = (string) $v;
     return $v === '' ? '-' : ucfirst(strtolower($v));
 };
+
+$appName = defined('APP_NAME') ? APP_NAME : 'Bank Sampah';
 
 $user = currentUser();
 $userName = 'Administrator';
@@ -94,6 +115,18 @@ if ($page < 1) {
     $page = 1;
 }
 
+// Token CSRF untuk form ubah status.
+if (isset($csrfToken)) {
+    $csrfToken = (string) $csrfToken;
+} elseif (function_exists('csrfToken')) {
+    $csrfToken = (string) csrfToken();
+} else {
+    $csrfToken = '';
+}
+
+// Pengajuan pencairan yang masih tertahan per nasabah, untuk peringatan.
+$pengajuanAktif = (isset($pengajuanAktif) && is_array($pengajuanAktif)) ? $pengajuanAktif : [];
+
 // Daftar nomor halaman (jendela +-2 di sekitar halaman aktif, dengan titik-titik).
 $pageItems = [];
 if ($totalPages > 1) {
@@ -115,6 +148,7 @@ $menu = [
     ['admin/nasabah',     'Kelola Nasabah',     'user'],
     ['admin/bank-sampah', 'Kelola Bank Sampah', 'building'],
     ['admin/desa',        'Kelola Desa',        'pin'],
+    ['admin/audit-log',   'Audit Log',          'file'],
     ['admin/pengaturan',  'Pengaturan',         'settings'],
 ];
 $menuAktif = 'admin/nasabah';
@@ -125,7 +159,7 @@ $menuAktif = 'admin/nasabah';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#1b5e20">
-    <title>Kelola Nasabah - <?= APP_NAME ?></title>
+    <title>Kelola Nasabah - <?= $e($appName) ?></title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -239,6 +273,7 @@ $menuAktif = 'admin/nasabah';
         .saldo-label { display:block; font-size:.8125rem; color:var(--ink-3); text-align:right; }
         .saldo { display:block; font-weight:800; color:var(--g-700); font-variant-numeric:tabular-nums; text-align:right; }
         .acts { display:flex; gap:8px; }
+        .acts form { margin:0; }
 
         .range { margin:14px 0 0; text-align:center; font-size:.9rem; color:var(--ink-3); }
         .pager { display:flex; flex-wrap:wrap; justify-content:center; gap:6px; margin-top:12px; }
@@ -255,23 +290,50 @@ $menuAktif = 'admin/nasabah';
         .empty h3 { margin:0 0 4px; font-size:1.0625rem; }
         .empty p { margin:0 auto 18px; max-width:40ch; color:var(--ink-3); }
 
-        @media (max-width:720px) {
-            .content { padding:18px 16px 56px; }
-            .topbar { padding:0 16px; }
-            h1 { font-size:1.5rem; }
-            .page-head .btn { width:100%; }
-            .list li { grid-template-columns:46px minmax(0,1fr); grid-template-areas:"ico main" "ico end"; }
-            .row-end { align-items:flex-start; }
-            .saldo-label, .saldo { text-align:left; }
+        dialog.dlg { width:min(860px, calc(100vw - 40px)); max-width:860px; padding:0; border:0; border-radius:28px; background:transparent; }
+        dialog.dlg::backdrop { background:rgba(17, 30, 20, 0.32); }
+        dialog.dlg form {
+            background:#fff; border:1px solid #dfece0; border-radius:28px; padding:24px 28px 22px; box-shadow:0 18px 40px rgba(23, 42, 27, 0.12);
         }
-        @media (prefers-reduced-motion:reduce) { *, *::before, *::after { transition:none !important; animation:none !important; } }
+        #dlgResetJudul { margin:0 0 10px; font-size:2.65rem; line-height:1.08; letter-spacing:-0.04em; color:#1a1f1b; }
+        .dlg-info { margin:0 0 20px; font-size:1.08rem; color:#4a5a4d; }
+        .label { display:block; margin:0 0 10px; font-size:1.05rem; font-weight:700; color:#1a1f1b; }
+        .control { position:relative; margin:0 0 10px; }
+        .f-input {
+            width:100%; min-height:62px; padding:0 52px 0 16px; border:2px solid #6ea570; border-radius:18px; font:inherit; font-size:1.2rem; color:#1a1f1b; background:#fff; box-sizing:border-box;
+        }
+        .f-input:focus { outline:none; border-color:#4a8a52; box-shadow:0 0 0 4px rgba(74,138,82,.12); }
+        .toggle {
+            position:absolute; right:14px; top:50%; transform:translateY(-50%); width:36px; height:36px; border:0; background:transparent; color:#4a5a4d; display:grid; place-items:center; cursor:pointer;
+        }
+        .toggle svg { width:22px; height:22px; }
+        .toggle .i-off { display:none; }
+        .toggle[aria-pressed="true"] .i-on { display:none; }
+        .toggle[aria-pressed="true"] .i-off { display:block; }
+        .hint { margin:0 0 20px; font-size:1rem; line-height:1.5; color:#4c6d50; }
+        .err { margin:0 0 10px; padding:10px 12px; border-radius:12px; background:#fde8e6; color:#9d1f17; font-size:.95rem; }
+        .dlg-actions { display:flex; align-items:center; gap:14px; margin-top:8px; }
+        .dlg-actions .btn { flex:1; min-height:60px; border-radius:16px; font-size:1.12rem; }
+        #resetBatal, #resetAcak { background:#fff; border:1.5px solid #d5e6d7; color:#1a2a1d; }
+        #resetAcak { display:inline-flex; gap:10px; }
+        #resetSimpan { background:linear-gradient(135deg,#5ea55f,#2d7d3d); color:#fff; border:1.5px solid transparent; box-shadow:0 10px 20px rgba(45,125,61,.18); }
+        #resetSimpan:hover { background:linear-gradient(135deg,#4f964f,#236d34); }
+
+        @media (max-width:720px) {
+            dialog.dlg { width:min(92vw, 460px); }
+            dialog.dlg form { padding:20px 18px 18px; border-radius:22px; }
+            #dlgResetJudul { font-size:2rem; }
+            .dlg-actions { flex-wrap:wrap; }
+            .dlg-actions .btn { width:100%; flex-basis:100%; }
+            .control { margin-bottom:12px; }
+        }
     </style>
 </head>
 <body>
     <aside class="sidebar" id="sidebar" aria-label="Menu utama">
         <div class="brand">
             <span class="brand-mark"><?= icon('leaf') ?></span>
-            <div><strong><?= APP_NAME ?></strong><small>Administrator</small></div>
+            <div><strong><?= $e($appName) ?></strong><small>Administrator</small></div>
         </div>
         <nav>
             <?php foreach ($menu as $m): $isActive = ($m[0] === $menuAktif); ?>
@@ -324,10 +386,40 @@ $menuAktif = 'admin/nasabah';
                                 $nama = (string) (isset($n['nama']) ? $n['nama'] : '');
                                 $noAng = trim((string) (isset($n['no_anggota']) ? $n['no_anggota'] : ''));
                                 $hp = trim((string) (isset($n['no_hp']) ? $n['no_hp'] : ''));
+                                $bankNama = trim((string) (isset($n['bank_sampah_nama']) ? $n['bank_sampah_nama'] : ''));
                                 $tipe = (string) (isset($n['tipe']) ? $n['tipe'] : '');
                                 $st = (string) (isset($n['status']) && $n['status'] !== '' ? $n['status'] : 'AKTIF');
                                 $saldo = isset($n['saldo']) ? (float) $n['saldo'] : 0;
                                 $id = isset($n['id']) ? $n['id'] : '';
+                                $punyaAkun = !empty($n['user_id']);
+
+                                // Teks konfirmasi dihitung di server dan hanya membantu pengguna.
+                                // Penjagaan sebenarnya (CSRF, hak akses, status) ada di controller.
+                                $tertahan = isset($pengajuanAktif[(int) $id]) ? $pengajuanAktif[(int) $id] : null;
+                                $jumlahPengajuan = (is_array($tertahan) && isset($tertahan['jumlah_pengajuan']))
+                                    ? (int) $tertahan['jumlah_pengajuan']
+                                    : 0;
+
+                                if ($st === 'AKTIF') {
+                                    $pesanKonfirmasi = 'Nonaktifkan nasabah ' . $nama . '? Riwayatnya tetap tersimpan.';
+                                    if ($punyaAkun) {
+                                        $pesanKonfirmasi .= ' Akun login nasabah juga dinonaktifkan sehingga tidak bisa masuk.';
+                                    }
+                                    if ($saldo > 0) {
+                                        $pesanKonfirmasi .= ' Saldo Rp ' . number_format($saldo, 0, ',', '.')
+                                            . ' masih tersimpan.';
+                                    }
+                                    if ($jumlahPengajuan > 0) {
+                                        $pesanKonfirmasi .= ' Ada ' . $jumlahPengajuan
+                                            . ' pengajuan pencairan yang belum selesai.';
+                                    }
+                                    $pesanKonfirmasi .= ' Lanjutkan?';
+                                } else {
+                                    $pesanKonfirmasi = 'Aktifkan kembali nasabah ' . $nama . '?';
+                                    if ($punyaAkun) {
+                                        $pesanKonfirmasi .= ' Akun login nasabah juga diaktifkan kembali.';
+                                    }
+                                }
                             ?>
                                 <li>
                                     <span class="ico" aria-hidden="true"><?= $e($inisial($nama)) ?></span>
@@ -336,10 +428,12 @@ $menuAktif = 'admin/nasabah';
                                         <div class="row-sub">
                                             <span><?= icon('hash') ?><?= $e($noAng !== '' ? $noAng : '-') ?></span>
                                             <?php if ($hp !== ''): ?><span><?= icon('phone') ?><?= $e($hp) ?></span><?php endif; ?>
+                                            <?php if ($bankNama !== ''): ?><span><?= icon('building') ?><?= $e($bankNama) ?></span><?php endif; ?>
                                         </div>
                                         <div class="row-meta">
                                             <?php if ($tipe !== ''): ?><span class="badge <?= $tipe === 'INSTANSI' ? 'b-amber' : 'b-sky' ?>"><?= $e($label($tipe)) ?></span><?php endif; ?>
                                             <span class="badge <?= $st === 'AKTIF' ? 'b-green' : 'b-grey' ?>"><?= $e($label($st)) ?></span>
+                                            <?php if (!$punyaAkun): ?><span class="badge b-grey">Tanpa akun</span><?php endif; ?>
                                         </div>
                                     </div>
                                     <div class="row-end">
@@ -349,7 +443,18 @@ $menuAktif = 'admin/nasabah';
                                         </div>
                                         <div class="acts">
                                             <a href="<?= base_url('admin/nasabah/edit?id=' . $id) ?>" class="btn btn-ghost btn-sm" aria-label="Ubah nasabah <?= $e($nama) ?>"><?= icon('edit') ?>Ubah</a>
-                                            <a href="<?= base_url('admin/nasabah/delete?id=' . $id) ?>" class="btn btn-danger-ghost btn-sm" data-nama="<?= $e($nama) ?>" aria-label="Hapus nasabah <?= $e($nama) ?>"><?= icon('trash') ?>Hapus</a>
+                                            <?php if ($punyaAkun): ?>
+                                                <button type="button" class="btn btn-ghost btn-sm" data-reset-id="<?= $e($id) ?>" data-reset-nama="<?= $e($nama) ?>" aria-label="Reset kata sandi nasabah <?= $e($nama) ?>"><?= icon('key') ?>Reset kata sandi</button>
+                                            <?php endif; ?>
+                                            <form method="POST" action="<?= base_url('admin/nasabah/status') ?>" data-confirm="<?= $e($pesanKonfirmasi) ?>">
+                                                <input type="hidden" name="csrf_token" value="<?= $e($csrfToken) ?>">
+                                                <input type="hidden" name="id" value="<?= $e($id) ?>">
+                                                <input type="hidden" name="aksi" value="<?= $st === 'AKTIF' ? 'nonaktifkan' : 'aktifkan' ?>">
+                                                <button type="submit" class="btn <?= $st === 'AKTIF' ? 'btn-danger-ghost' : 'btn-ghost' ?> btn-sm"
+                                                        aria-label="<?= $st === 'AKTIF' ? 'Nonaktifkan' : 'Aktifkan kembali' ?> nasabah <?= $e($nama) ?>">
+                                                    <?= icon($st === 'AKTIF' ? 'power' : 'refresh') ?><?= $st === 'AKTIF' ? 'Nonaktifkan' : 'Aktifkan' ?>
+                                                </button>
+                                            </form>
                                         </div>
                                     </div>
                                 </li>
@@ -389,6 +494,32 @@ $menuAktif = 'admin/nasabah';
         </main>
     </div>
 
+    <dialog class="dlg" id="dlgReset" aria-labelledby="dlgResetJudul">
+        <form method="post" action="<?= $e(base_url('admin/nasabah/reset-password')) ?>" id="formReset" novalidate>
+            <input type="hidden" name="csrf_token" value="<?= $e($csrfToken) ?>">
+            <input type="hidden" name="id" id="resetId" value="">
+
+            <h2 id="dlgResetJudul">Reset kata sandi</h2>
+            <p class="dlg-info" id="dlgResetInfo">Ketik kata sandi sementara baru untuk nasabah ini.</p>
+
+            <label for="resetPw" class="label">Kata sandi sementara baru</label>
+            <div class="control">
+                <input type="password" name="password" id="resetPw" class="f-input" maxlength="72" autocomplete="new-password" aria-describedby="resetHint resetErr">
+                <button type="button" class="toggle" id="resetToggle" aria-pressed="false" aria-label="Tampilkan kata sandi" aria-controls="resetPw">
+                    <span class="i-on"><?= icon('eye') ?></span><span class="i-off"><?= icon('eye-off') ?></span>
+                </button>
+            </div>
+            <p class="hint" id="resetHint">Minimal 8 karakter, mengandung huruf dan angka. Nasabah wajib menggantinya saat login berikutnya.</p>
+            <p class="err" id="resetErr" role="alert" hidden></p>
+
+            <div class="dlg-actions">
+                <button type="button" class="btn" id="resetBatal">Batal</button>
+                <button type="button" class="btn" id="resetAcak"><?= icon('key') ?>Buat acak</button>
+                <button type="submit" class="btn" id="resetSimpan">Reset kata sandi</button>
+            </div>
+        </form>
+    </dialog>
+
     <script>
     (function () {
         var root = document.documentElement;
@@ -421,15 +552,95 @@ $menuAktif = 'admin/nasabah';
         });
         if (mq.addEventListener) { mq.addEventListener('change', initial); } else if (mq.addListener) { mq.addListener(initial); }
 
-        // Konfirmasi hapus
-        var links = document.querySelectorAll('a[data-nama]');
-        Array.prototype.forEach.call(links, function (a) {
-            a.addEventListener('click', function (ev) {
-                if (!window.confirm('Yakin hapus nasabah "' + a.getAttribute('data-nama') + '"?')) {
+        var forms = document.querySelectorAll('form[data-confirm]');
+        Array.prototype.forEach.call(forms, function (f) {
+            f.addEventListener('submit', function (ev) {
+                if (!window.confirm(f.getAttribute('data-confirm'))) {
                     ev.preventDefault();
                 }
             });
         });
+
+        var dlg = document.getElementById('dlgReset');
+        if (dlg) {
+            var resetId = document.getElementById('resetId');
+            var resetInfo = document.getElementById('dlgResetInfo');
+            var resetPw = document.getElementById('resetPw');
+            var resetErr = document.getElementById('resetErr');
+            var resetToggle = document.getElementById('resetToggle');
+            var formReset = document.getElementById('formReset');
+
+            function tampilkanReset(tampil) {
+                resetPw.type = tampil ? 'text' : 'password';
+                resetToggle.setAttribute('aria-pressed', tampil ? 'true' : 'false');
+                resetToggle.setAttribute('aria-label', tampil ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi');
+            }
+            function pesanReset(teks) {
+                resetErr.textContent = teks;
+                resetErr.hidden = (teks === '');
+            }
+            function bukaDialog() {
+                if (typeof dlg.showModal === 'function') { dlg.showModal(); } else { dlg.setAttribute('open', 'open'); }
+            }
+            function tutupDialog() {
+                if (typeof dlg.close === 'function') { dlg.close(); } else { dlg.removeAttribute('open'); }
+            }
+
+            var tombolReset = document.querySelectorAll('[data-reset-id]');
+            Array.prototype.forEach.call(tombolReset, function (b) {
+                b.addEventListener('click', function () {
+                    resetId.value = b.getAttribute('data-reset-id');
+                    resetInfo.textContent = 'Ketik kata sandi sementara baru untuk ' + b.getAttribute('data-reset-nama') + '.';
+                    resetPw.value = '';
+                    tampilkanReset(false);
+                    pesanReset('');
+                    bukaDialog();
+                    resetPw.focus();
+                });
+            });
+
+            document.getElementById('resetBatal').addEventListener('click', tutupDialog);
+            resetToggle.addEventListener('click', function () { tampilkanReset(resetPw.type === 'password'); });
+
+            document.getElementById('resetAcak').addEventListener('click', function () {
+                var besar = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+                var kecil = 'abcdefghijkmnpqrstuvwxyz';
+                var angka = '23456789';
+                var semua = besar + kecil + angka;
+                var len = 12;
+                var buf = new Uint32Array(len);
+                if (window.crypto && window.crypto.getRandomValues) {
+                    window.crypto.getRandomValues(buf);
+                } else {
+                    for (var i = 0; i < len; i++) { buf[i] = Math.floor(Math.random() * 4294967295); }
+                }
+                var out = [besar.charAt(buf[0] % besar.length), kecil.charAt(buf[1] % kecil.length), angka.charAt(buf[2] % angka.length)];
+                for (var i = 3; i < len; i++) { out.push(semua.charAt(buf[i] % semua.length)); }
+                for (var j = out.length - 1; j > 0; j--) {
+                    var k = buf[j] % (j + 1);
+                    var t = out[j]; out[j] = out[k]; out[k] = t;
+                }
+                resetPw.value = out.join('');
+                tampilkanReset(true);
+                pesanReset('');
+                resetPw.focus();
+            });
+
+            formReset.addEventListener('submit', function (ev) {
+                var v = resetPw.value;
+                var pesan = '';
+                if (v === '') { pesan = 'Kata sandi wajib diisi.'; }
+                else if (v.length < 8) { pesan = 'Kata sandi minimal 8 karakter.'; }
+                else if (!/[A-Za-z]/.test(v) || !/[0-9]/.test(v)) { pesan = 'Kata sandi harus mengandung huruf dan angka.'; }
+                if (pesan !== '') {
+                    ev.preventDefault();
+                    pesanReset(pesan);
+                    resetPw.focus();
+                    return;
+                }
+                pesanReset('');
+            });
+        }
     })();
     </script>
 </body>

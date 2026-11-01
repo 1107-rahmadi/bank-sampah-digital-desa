@@ -417,7 +417,7 @@ class TransaksiBeli
     {
         $stmt = $this->db->prepare("
             SELECT tb.*, b.nama as bank_nama, u.nama as petugas_nama,
-                   n.nama as nasabah_nama, n.no_hp as nasabah_hp
+            n.nama as nasabah_nama, n.no_hp as nasabah_hp
             FROM transaksi_beli tb
             LEFT JOIN bank_sampah b ON tb.bank_sampah_id = b.id
             LEFT JOIN users u ON tb.petugas_id = u.id
@@ -459,7 +459,7 @@ class TransaksiBeli
     {
         $sql = "
             SELECT tb.*, b.nama as bank_nama, u.nama as petugas_nama,
-                   n.nama as nasabah_nama, n.no_anggota
+            n.nama as nasabah_nama, n.no_anggota
             FROM transaksi_beli tb
             LEFT JOIN bank_sampah b ON tb.bank_sampah_id = b.id
             LEFT JOIN users u ON tb.petugas_id = u.id
@@ -498,6 +498,39 @@ class TransaksiBeli
         $stmt->execute();
         return $stmt->fetchAll();
     }
+
+            /**
+         * Hitung jumlah transaksi (untuk paging). Syarat filter sama dengan
+         * getByBankSampah() supaya jumlah halaman akurat.
+         *
+         * @param int         $bankSampahId
+         * @param string|null $tanggalFrom
+         * @param string|null $tanggalTo
+         * @param string|null $status
+         * @return int
+         */
+        public function countByBankSampah($bankSampahId, $tanggalFrom = null, $tanggalTo = null, $status = null): int
+        {
+            $sql = "SELECT COUNT(*) FROM transaksi_beli tb WHERE tb.bank_sampah_id = :bank_id";
+            $params = ['bank_id' => $bankSampahId];
+
+            if ($tanggalFrom) {
+                $sql .= " AND tb.tanggal >= :tanggal_from";
+                $params['tanggal_from'] = $tanggalFrom . ' 00:00:00';
+            }
+            if ($tanggalTo) {
+                $sql .= " AND tb.tanggal <= :tanggal_to";
+                $params['tanggal_to'] = $tanggalTo . ' 23:59:59';
+            }
+            if ($status !== null) {
+                $sql .= " AND tb.status = :status";
+                $params['status'] = $status;
+            }
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            return (int) $stmt->fetchColumn();
+        }
 
     /**
      * Statistik transaksi beli

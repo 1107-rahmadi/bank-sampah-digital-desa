@@ -161,6 +161,15 @@ if ($controllerName === 'Logout' || ($controllerName === 'Auth' && $methodName =
     exit;
 }
 
+// Route: /ganti-password (semua peran; wajib saat memakai kata sandi sementara)
+// Memakai $segments[0] langsung karena nama bertanda hubung tidak lolos validasi $controllerName.
+if (($segments[0] ?? '') === 'ganti-password') {
+    require_once CONTROLLER_PATH . '/PasswordController.php';
+    $controller = new PasswordController();
+    $controller->ganti();
+    exit;
+}
+
 // Route: /dashboard -> redirect sesuai role
 if ($controllerName === 'Dashboard') {
     if (!isLoggedIn()) {
@@ -191,7 +200,18 @@ if ($controllerName === 'Nasabah' && $methodName === 'cairkan') {
     exit;
 }
 
-// Route: /admin/users/add, /admin/users/edit, /admin/users/delete
+// Route: /nasabah/pencairan/batal
+// Nasabah membatalkan pengajuan pencairannya sendiri, hanya saat
+// statusnya masih DIAJUKAN (Menunggu).
+if ($controllerName === 'Nasabah' && $methodName === 'pencairan' && $param1 === 'batal') {
+    require_once CONTROLLER_PATH . '/NasabahController.php';
+    $controller = new NasabahController();
+    $controller->batalkanPencairan();
+    exit;
+}
+
+// Route: /admin/users/add, /admin/users/edit, /admin/users/status, /admin/users/reset-password
+// (/admin/users/delete dipertahankan hanya agar rute lama tidak error; tidak menghapus apa pun)
 if ($controllerName === 'Admin') {
     require_once CONTROLLER_PATH . '/AdminController.php';
     $controller = new AdminController();
@@ -203,6 +223,10 @@ if ($controllerName === 'Admin') {
             $controller->userForm();
         } elseif ($param1 === 'delete') {
             $controller->userDelete();
+        } elseif ($param1 === 'status') {
+            $controller->userToggleStatus();
+        } elseif ($param1 === 'reset-password') {
+            $controller->userResetPassword();
         } else {
             $controller->users();
         }
@@ -237,14 +261,18 @@ if ($controllerName === 'Admin') {
         exit;
     }
 
-    // /admin/nasabah/add, /admin/nasabah/edit, /admin/nasabah/delete
+    // /admin/nasabah/add, /admin/nasabah/edit, /admin/nasabah/status, /admin/nasabah/reset-password
+    // Rute hapus permanen tidak ada. Nasabah tidak pernah dihapus, hanya
+    // dinonaktifkan lewat /admin/nasabah/status.
     if ($methodName === 'nasabah') {
         if ($param1 === 'add') {
             $controller->nasabahForm();
         } elseif ($param1 === 'edit') {
             $controller->nasabahForm();
-        } elseif ($param1 === 'delete') {
-            $controller->nasabahDelete();
+        } elseif ($param1 === 'status') {
+            $controller->nasabahToggleStatus();
+        } elseif ($param1 === 'reset-password') {
+            $controller->nasabahResetPassword();
         } else {
             $controller->nasabah();
         }
@@ -372,6 +400,8 @@ if ($controllerName === 'Pengelola') {
             $controller->pencairanTolak();
         } elseif ($param1 === 'cairkan') {
             $controller->pencairanCairkan();
+        } elseif ($param1 === 'batal') {
+            $controller->pencairanBatal();
         } elseif ($param1 === 'export-pdf') {
             $controller->pencairanExportPdf();
         } else {

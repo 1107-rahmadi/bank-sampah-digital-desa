@@ -86,8 +86,9 @@ foreach ($barisStok as $b) {
 }
 
 // Status pencairan yang tampil di laporan.
+// Istilah status sama dengan modul Pencairan: Menunggu, bukan "Diajukan".
 $statusPencairan = [
-    'DIAJUKAN' => 'Diajukan',
+    'DIAJUKAN' => 'Menunggu',
     'DISETUJUI' => 'Disetujui',
     'DITOLAK' => 'Ditolak',
     'DICAIRKAN' => 'Dicairkan',

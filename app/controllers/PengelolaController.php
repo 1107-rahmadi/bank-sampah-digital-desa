@@ -88,7 +88,7 @@ class PengelolaController
         $this->mutasiModel = new MutasiSaldo();
         $this->notifModel = new Notifikasi();
 
-                // Ambil bank sampah dari session user
+        // Ambil bank sampah dari session user
         $this->bankSampahId = (int) ($_SESSION['user_bank_sampah_id'] ?? 0);
 
         if ($this->bankSampahId <= 0) {
@@ -231,7 +231,7 @@ class PengelolaController
 
         // Bentuk yang diterima: "12", "12.5", "12,50". Modifier D dipakai
         // supaya karakter di akhir input (mis. baris baru) tidak lolos.
-            $cocok = preg_match('/^(\d+)(?:[.,](\d+))?$/D', $teks, $m);
+        $cocok = preg_match('/^(\d+)(?:[.,](\d+))?$/D', $teks, $m);
 
         if (!$cocok) {
             return $galat('harus berupa angka dan tidak boleh negatif.');
@@ -327,6 +327,44 @@ class PengelolaController
         }
     }
 
+    /**
+     * Baca rentang tanggal filter dari GET (tanggal_from, tanggal_to).
+     *
+     * Format divalidasi (Y-m-d dan tanggal yang benar-benar ada). Bila
+     * "dari" lebih besar dari "sampai", keduanya ditukar.
+     *
+     * @return array [string|null $dari, string|null $sampai]
+     */
+    private function rentangTanggalGet(): array
+    {
+        $dari = $this->tanggalFilter($_GET['tanggal_from'] ?? null);
+        $sampai = $this->tanggalFilter($_GET['tanggal_to'] ?? null);
+
+        if ($dari !== null && $sampai !== null && $dari > $sampai) {
+            $tmp = $dari;
+            $dari = $sampai;
+            $sampai = $tmp;
+        }
+
+        return [$dari, $sampai];
+    }
+
+    /**
+     * Hitung halaman untuk daftar berpaging.
+     *
+     * @param int $totalData
+     * @param int $perHalaman
+     * @return array [int $halaman, int $totalHalaman, int $offset]
+     */
+    private function hitungPaging(int $totalData, int $perHalaman): array
+    {
+        $totalHalaman = max(1, (int) ceil($totalData / $perHalaman));
+        $halaman = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
+        $halaman = min($halaman, $totalHalaman);
+
+        return [$halaman, $totalHalaman, ($halaman - 1) * $perHalaman];
+    }
+
     public function index(): void
     {
         $this->dashboard();
@@ -355,18 +393,31 @@ class PengelolaController
 
     /**
      * Transaksi Beli - List
+     *
+     * Mendukung filter rentang tanggal (tanggal_from, tanggal_to) dan paging.
      */
     public function transaksiBeli(): void
     {
-        $page = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
         $perPage = 20;
-        $offset = ($page - 1) * $perPage;
 
-        $tanggalFrom = $_GET['tanggal_from'] ?? null;
-        $tanggalTo = $_GET['tanggal_to'] ?? null;
+        list($dari, $sampai) = $this->rentangTanggalGet();
 
-        $transaksis = $this->transaksiBeli->getByBankSampah($this->bankSampahId, $perPage, $offset, $tanggalFrom, $tanggalTo);
-        $stats = $this->transaksiBeli->getStatistik($this->bankSampahId, $tanggalFrom, $tanggalTo);
+        // Jumlah data untuk paging. Memakai countByBankSampah() bila model
+        // menyediakannya; bila belum, jatuh ke total dari statistik.
+        $stats = $this->transaksiBeli->getStatistik($this->bankSampahId, $dari, $sampai);
+        if (method_exists($this->transaksiBeli, 'countByBankSampah')) {
+        $totalData = (int) $this->transaksiBeli->countByBankSampah($this->bankSampahId, $dari, $sampai);
+        } else {
+        $totalData = (int) ($stats['total_transaksi'] ?? 0);
+        }
+
+        list($halaman, $totalHalaman, $offset) = $this->hitungPaging($totalData, $perPage);
+
+        $transaksis = $this->transaksiBeli->getByBankSampah($this->bankSampahId, $perPage, $offset, $dari, $sampai);
+
+        // View memakai string kosong untuk "tidak ada filter".
+        $tanggalFrom = $dari !== null ? $dari : '';
+        $tanggalTo = $sampai !== null ? $sampai : '';
 
         $user = currentUser();
         $flash = getFlashMessage();
@@ -397,7 +448,8 @@ class PengelolaController
         $hargaList = $this->hargaModel->getLatestByBank($this->bankSampahId, $tanggal);
 
         // Nasabah aktif bank ini (dipakai untuk dropdown).
-        $nasabahList = $this->nasabahModel->getAll(null, 0, $this->bankSampahId);
+        // Nasabah nonaktif tidak boleh dipilih untuk transaksi baru.
+        $nasabahList = $this->nasabahModel->getAll(null, 0, $this->bankSampahId, 'AKTIF');
         $nasabahList = array_values(array_filter($nasabahList, function ($n) {
             return ($n['status'] ?? 'AKTIF') === 'AKTIF';
         }));
@@ -428,7 +480,7 @@ class PengelolaController
      * @param string $tanggal
      * @return array
      */
-        private function prosesTransaksiBeli(array $hargaMap, string $tanggal): array
+    private function prosesTransaksiBeli(array $hargaMap, string $tanggal): array
     {
         $errors = [];
 
@@ -575,6 +627,7 @@ class PengelolaController
             $this->transaksiBeli->getLastError() ?: 'Gagal menyimpan transaksi.',
         ]];
     }
+
     /**
      * Detail/bukti transaksi beli (FR-12).
      */
@@ -635,13 +688,31 @@ class PengelolaController
 
     /**
      * Transaksi Jual - List
+     *
+     * Mendukung filter rentang tanggal (tanggal_from, tanggal_to) dan paging.
+     * Ringkasan (stats) mengikuti rentang tanggal yang sama.
      */
     public function transaksiJual(): void
     {
-        $transaksis = $this->transaksiJual->getByBankSampah($this->bankSampahId, 50);
-        $stats = $this->transaksiJual->getStatistik($this->bankSampahId);
+        $perPage = 20;
+
+        list($dari, $sampai) = $this->rentangTanggalGet();
+
+        $stats = $this->transaksiJual->getStatistik($this->bankSampahId, $dari, $sampai);
+        if (method_exists($this->transaksiJual, 'countByBankSampah')) {
+            $totalData = (int) $this->transaksiJual->countByBankSampah($this->bankSampahId, $dari, $sampai);
+        } else {
+            $totalData = (int) ($stats['total_transaksi'] ?? 0);
+        }
+        list($halaman, $totalHalaman, $offset) = $this->hitungPaging($totalData, $perPage);
+
+        $transaksis = $this->transaksiJual->getByBankSampah($this->bankSampahId, $perPage, $offset, $dari, $sampai);
         $stokList = $this->stokModel->getByBankSampah($this->bankSampahId);
         $pengepulList = $this->pengepulModel->getAll($this->bankSampahId, 'AKTIF');
+
+        // View memakai string kosong untuk "tidak ada filter".
+        $tanggalFrom = $dari !== null ? $dari : '';
+        $tanggalTo = $sampai !== null ? $dari : '';
 
         $user = currentUser();
         $flash = getFlashMessage();
@@ -714,7 +785,8 @@ class PengelolaController
         }
 
         $items = [];
-        
+        $totalBeratCents = 0;
+        $totalNilaiCents = 0;
 
         $kategoriIds = array_values(array_unique(array_map('intval', (array) ($_POST['kategori_id'] ?? []))));
 
@@ -812,7 +884,7 @@ class PengelolaController
             return ['success' => false, 'errors' => $errors];
         }
 
-                // Total berat dan nilai sengaja tidak dikirim: model menghitungnya dari item.
+        // Total berat dan nilai sengaja tidak dikirim: model menghitungnya dari item.
         $data = [
             'bank_sampah_id' => $this->bankSampahId,
             'pengepul_id' => $pengepulId,
@@ -969,6 +1041,11 @@ class PengelolaController
 
     /**
      * Daftar Pengajuan Pencairan
+     *
+     * Filter status:
+     * - tanpa parameter  -> status yang perlu ditindaklanjuti (Menunggu + Disetujui)
+     * - status=SEMUA    -> semua status
+     * - status=<kode>   -> satu status, boleh lebih dari satu (mis. "DIAJUKAN,DISETUJUI")
      */
     public function pencairan(): void
     {
@@ -976,12 +1053,31 @@ class PengelolaController
         $perPage = 20;
         $offset = ($page - 1) * $perPage;
 
-        $statusFilter = $_GET['status'] ?? null;
+        $pilihan = isset($_GET['status']) ? strtoupper(trim((string) $_GET['status'])) : '';
+
+        if ($pilihan === 'SEMUA' || $pilihan === 'ALL') {
+            $statusFilter = '';
+            $filterAktif = 'SEMUA';
+        } elseif ($pilihan !== '') {
+            $statusFilter = $pilihan;
+            $filterAktif = $pilihan;
+        } else {
+            // Default: yang perlu ditindaklanjuti.
+            $statusFilter = PengajuanPencairan::STATUS_DIAJUKAN . ',' . PengajuanPencairan::STATUS_DISETUJUI;
+            $filterAktif = $statusFilter;
+        }
+
+        // Nilai filter asli, dipakai untuk menyusun ulang URL (chip, tab,
+        // dan paginasi) supaya filter yang sedang aktif tidak hilang.
+        $filterParam = $pilihan;
 
         $pengajuans = $this->pencairanModel->getAll($this->bankSampahId, $statusFilter, $perPage, $offset);
         $totalData = $this->pencairanModel->countAll($this->bankSampahId, $statusFilter);
         $totalPages = max(1, ceil($totalData / $perPage));
+
+        // Satu query agregat (GROUP BY status) untuk semua angka ringkasan.
         $statistik = $this->pencairanModel->getStatistik($this->bankSampahId);
+        $labelStatus = PengajuanPencairan::semuaStatus();
 
         $user = currentUser();
         $flash = getFlashMessage();
@@ -1006,7 +1102,9 @@ class PengelolaController
 
         // Data saldo nasabah (khususnasabah yang memproses, lihat bagian 9).
         $nasabah = $this->nasabahModel->findById((int) $pengajuan['nasabah_id']);
-        $saldoTersedia = $nasabah ? $this->nasabahModel->getSaldoTersedia((int) $nasabah['id']) : 0;
+        $saldoNasabah = $nasabah ? (float) $nasabah['saldo'] : 0.0;
+        $saldoTersedia = $nasabah ? $this->nasabahModel->getSaldoTersedia((int) $nasabah['id']) : 0.0;
+        $labelStatus = PengajuanPencairan::semuaStatus();
 
         $user = currentUser();
         $flash = getFlashMessage();
@@ -1042,28 +1140,12 @@ class PengelolaController
             return;
         }
 
-        // Update status menjadi DISETUJUI
-        $success = $this->pencairanModel->updateStatus($id, PengajuanPencairan::STATUS_DISETUJUI, currentUserId());
-
-        if ($success) {
-            $this->catatAudit(
-                'SETUJUI',
-                'pengajuan_pencairan',
-                $id,
-                ['status' => PengajuanPencairan::STATUS_DIAJUKAN],
-                ['status' => PengajuanPencairan::STATUS_DISETUJUI]
-            );
-
-            $this->kirimNotifikasi(
-                !empty($pengajuan['nasabah_user_id']) ? (int) $pengajuan['nasabah_user_id'] : null,
-                'Pengajuan pencairan disetujui',
-                'Pengajuan ' . $pengajuan['no_pengajuan'] . ' telah disetujui dan siap dicairkan.',
-                'PENCAIRAN'
-            );
-
+        // Transisi status divalidasi di server (model), bukan hanya
+        // dengan menyembunyikan tombol.
+        if ($this->pencairanModel->setujui($id, (int) currentUserId())) {
             setFlashMessage('success', 'Pengajuan ' . $pengajuan['no_pengajuan'] . ' telah disetujui. Silakan proses pencairan.');
         } else {
-            setFlashMessage('error', 'Gagal memproses pengajuan.');
+            setFlashMessage('error', $this->pencairanModel->getLastError() ?: 'Gagal memproses pengajuan.');
         }
 
         redirect('pengelola/pencairan');
@@ -1104,28 +1186,54 @@ class PengelolaController
             return;
         }
 
-        // Update status menjadi DITOLAK
-        $success = $this->pencairanModel->updateStatus($id, PengajuanPencairan::STATUS_DITOLAK, currentUserId(), $alasan);
-
-        if ($success) {
-            $this->catatAudit(
-                'TOLAK',
-                'pengajuan_pencairan',
-                $id,
-                ['status' => PengajuanPencairan::STATUS_DIAJUKAN],
-                ['status' => PengajuanPencairan::STATUS_DITOLAK, 'alasan' => $alasan]
-            );
-
-            $this->kirimNotifikasi(
-                !empty($pengajuan['nasabah_user_id']) ? (int) $pengajuan['nasabah_user_id'] : null,
-                'Pengajuan pencairan ditolak',
-                'Pengajuan ' . $pengajuan['no_pengajuan'] . ' ditolak. Alasan: ' . $alasan,
-                'PENCAIRAN'
-            );
-
+        // Update status menjadi DITOLAK (alasan wajib, divalidasi di server).
+        if ($this->pencairanModel->tolak($id, (int) currentUserId(), $alasan)) {
             setFlashMessage('success', 'Pengajuan ' . $pengajuan['no_pengajuan'] . ' telah ditolak.');
         } else {
-            setFlashMessage('error', 'Gagal memproses pengajuan.');
+            setFlashMessage('error', $this->pencairanModel->getLastError() ?: 'Gagal memproses pengajuan.');
+        }
+
+        redirect('pengelola/pencairan');
+    }
+
+    /**
+     * Batalkan pengajuan pencairan yang sudah disetujui.
+     *
+     * Hanya pengelola yang boleh melakukan ini, dan hanya untuk pengajuan
+     * berstatus DISETUJUI (Disetujui). Alasan pembatalan wajib diisi dan
+     * dikirim ke nasabah lewat notifikasi. Saldo yang tertahan dilepas
+     * kembali karena pengajuan tidak lagi berstatus Disetujui.
+     */
+    public function pencairanBatal(): void
+    {
+        if (!$this->hanyaPost('pengelola/pencairan')) {
+            return;
+        }
+        if (!$this->cekToken('pengelola/pencairan')) {
+            return;
+        }
+
+        $id = isset($_POST['id']) ? (int) $_POST['id'] : 0;
+        $alasan = trim((string) ($_POST['alasan'] ?? ''));
+
+        $pengajuan = $id ? $this->pencairanModel->findById($id) : null;
+
+        if (!$pengajuan || (int) $pengajuan['bank_sampah_id'] !== (int) $this->bankSampahId) {
+            setFlashMessage('error', 'Pengajuan tidak ditemukan.');
+            redirect('pengelola/pencairan');
+            return;
+        }
+
+        if ($alasan === '') {
+            setFlashMessage('error', 'Alasan pembatalan harus diisi.');
+            redirect('pengelola/pencairan/detail?id=' . $id);
+            return;
+        }
+
+        if ($this->pencairanModel->batalkanPengelola($id, (int) currentUserId(), $alasan)) {
+            setFlashMessage('success', 'Pengajuan ' . $pengajuan['no_pengajuan'] . ' telah dibatalkan. Nasabah sudah diberi tahu alasannya.');
+        } else {
+            setFlashMessage('error', $this->pencairanModel->getLastError() ?: 'Gagal membatalkan pengajuan.');
         }
 
         redirect('pengelola/pencairan');
@@ -1867,6 +1975,7 @@ class PengelolaController
 
     /**
      * Tanggal filter laporan (YYYY-MM-DD). Nilai kosong berarti tanpa batas.
+     * Tanggal yang tidak ada di kalender (mis. 2026-02-31) juga ditolak.
      *
      * @param string|null $tanggal
      * @return string|null
@@ -1879,6 +1988,11 @@ class PengelolaController
 
         $tanggal = trim($tanggal);
         if ($tanggal === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $tanggal)) {
+            return null;
+        }
+
+        $d = DateTime::createFromFormat('Y-m-d', $tanggal);
+        if (!$d || $d->format('Y-m-d') !== $tanggal) {
             return null;
         }
 

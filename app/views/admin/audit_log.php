@@ -6,6 +6,8 @@
  * Variabel dari controller: $logs (opsional $flash)
  * $logs: tiap item berisi created_at, user_nama, aksi, tabel, record_id, sebelum, sesudah
  * Filter dibaca dari $_GET: tabel, aksi, tanggal_from, tanggal_to
+ *
+ * Data sebelum/sesudah (JSON) ditampilkan seperti struk, bukan JSON mentah.
  */
 
 if (!function_exists('icon')) {
@@ -46,21 +48,152 @@ if (!function_exists('icon')) {
     }
 }
 
-if (!function_exists('auditFormatJson')) {
-    /**
-     * Rapikan JSON agar mudah dibaca. Jika bukan JSON valid, tampilkan apa adanya.
-     */
-    function auditFormatJson($raw): string
+/* ---------- Helper tampilan struk ---------- */
+
+if (!function_exists('auditH')) {
+    function auditH($v): string
     {
-        $raw = (string) $raw;
+        return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+    }
+}
+
+if (!function_exists('auditDecode')) {
+    /**
+     * Ubah JSON menjadi array. Return null jika kosong / bukan JSON array.
+     */
+    function auditDecode($raw)
+    {
+        if (is_array($raw)) {
+            return $raw;
+        }
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return null;
+        }
         $data = json_decode($raw, true);
         if (json_last_error() === JSON_ERROR_NONE && is_array($data)) {
-            $out = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            if ($out !== false) {
-                return $out;
+            return $data;
+        }
+        return null;
+    }
+}
+
+if (!function_exists('auditLabel')) {
+    /** nama_kolom -> Nama Kolom */
+    function auditLabel($key): string
+    {
+        $key = trim((string) $key);
+        if ($key === 'id') {
+            return 'ID';
+        }
+        $key = preg_replace('/_id$/', ' ID', $key);
+        $key = str_replace('_', ' ', $key);
+        return ucwords($key);
+    }
+}
+
+if (!function_exists('auditValue')) {
+    /** Nilai kolom -> teks yang mudah dibaca. */
+    function auditValue($key, $v): string
+    {
+        if (preg_match('/pass|token|secret/i', (string) $key)) {
+            return '••••••';
+        }
+        if ($v === null || $v === '') {
+            return '-';
+        }
+        if (is_bool($v)) {
+            return $v ? 'Ya' : 'Tidak';
+        }
+        if (is_array($v)) {
+            $out = json_encode($v, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            return $out !== false ? $out : '-';
+        }
+        if (is_numeric($v) && preg_match('/harga|total|saldo|nominal|upah|rupiah/i', (string) $key)) {
+            return 'Rp ' . number_format((float) $v, 0, ',', '.');
+        }
+        if (is_numeric($v) && preg_match('/berat|kg/i', (string) $key)) {
+            return rtrim(rtrim(number_format((float) $v, 2, ',', '.'), '0'), ',') . ' kg';
+        }
+        return (string) $v;
+    }
+}
+
+if (!function_exists('auditLine')) {
+    /** Satu baris struk: label ........ nilai */
+    function auditLine($label, $value, $strong = false): string
+    {
+        return '<div class="s-line"><span class="s-k">' . auditH($label) . '</span>'
+            . '<span class="s-lead" aria-hidden="true"></span>'
+            . '<span class="s-v' . ($strong ? ' s-strong' : '') . '">' . auditH($value) . '</span></div>';
+    }
+}
+
+if (!function_exists('auditStruk')) {
+    /**
+     * Susun struk perubahan.
+     * INSERT -> daftar data baru, DELETE -> daftar data yang dihapus,
+     * UPDATE -> hanya kolom yang berubah (sebelum -> sesudah).
+     */
+    function auditStruk(string $aksi, $sebelum, $sesudah, array $meta): string
+    {
+        $b = auditDecode($sebelum);
+        $s = auditDecode($sesudah);
+
+        $judul = [
+            'INSERT' => 'DATA DITAMBAHKAN',
+            'UPDATE' => 'DATA DIUBAH',
+            'DELETE' => 'DATA DIHAPUS',
+        ];
+
+        $h = '<div class="struk">';
+        $h .= '<div class="s-title">' . auditH(isset($judul[$aksi]) ? $judul[$aksi] : 'RINCIAN PERUBAHAN') . '</div>';
+        $h .= '<div class="s-sep"></div>';
+        foreach ($meta as $k => $v) {
+            $h .= auditLine($k, $v);
+        }
+        $h .= '<div class="s-sep"></div>';
+
+        if ($aksi === 'UPDATE' && $b !== null && $s !== null) {
+            $keys = array_values(array_unique(array_merge(array_keys($b), array_keys($s))));
+            $berubah = 0;
+            $sama = 0;
+            foreach ($keys as $k) {
+                $vb = array_key_exists($k, $b) ? $b[$k] : null;
+                $vs = array_key_exists($k, $s) ? $s[$k] : null;
+                if ($vb === $vs || (string) json_encode($vb) === (string) json_encode($vs)) {
+                    $sama++;
+                    continue;
+                }
+                $berubah++;
+                $h .= '<div class="s-change">'
+                    . '<div class="s-field">' . auditH(auditLabel($k)) . '</div>'
+                    . '<div class="s-from"><span>Sebelum</span><s>' . auditH(auditValue($k, $vb)) . '</s></div>'
+                    . '<div class="s-to"><span>Sesudah</span><b>' . auditH(auditValue($k, $vs)) . '</b></div>'
+                    . '</div>';
+            }
+            if ($berubah === 0) {
+                $h .= '<div class="s-note">Tidak ada nilai yang berubah.</div>';
+            }
+            if ($sama > 0) {
+                $h .= '<div class="s-sep"></div><div class="s-note">' . (int) $sama . ' data lain tidak berubah</div>';
+            }
+        } else {
+            $data = ($aksi === 'DELETE') ? ($b !== null ? $b : $s) : ($s !== null ? $s : $b);
+            if ($data !== null && count($data) > 0) {
+                foreach ($data as $k => $v) {
+                    $h .= auditLine(auditLabel($k), auditValue($k, $v));
+                }
+            } else {
+                /* Bukan JSON valid: tampilkan teks apa adanya */
+                $mentah = trim((string) ($sesudah !== '' && $sesudah !== null ? $sesudah : $sebelum));
+                $h .= '<div class="s-note">' . ($mentah !== '' ? auditH($mentah) : 'Tidak ada rincian data.') . '</div>';
             }
         }
-        return $raw;
+
+        $h .= '<div class="s-sep"></div><div class="s-foot">*** Catatan sistem ***</div>';
+        $h .= '</div>';
+        return $h;
     }
 }
 
@@ -101,7 +234,7 @@ $menu = [
     ['admin/bank-sampah', 'Kelola Bank Sampah', 'building'],
     ['admin/desa',        'Kelola Desa',        'pin'],
     ['admin/audit-log',   'Audit Log',          'file'],
-    ['admin/pengaturan',  'Pengaturan',         'settings'],
+   // ['admin/pengaturan',  'Pengaturan',         'settings'],
 ];
 $menuAktif = 'admin/audit-log';
 
@@ -126,33 +259,12 @@ $aksiOpsi = [
     'UPDATE' => 'Ubah (UPDATE)',
     'DELETE' => 'Hapus (DELETE)',
 ];
-/* label, kelas badge, ikon, kelas ikon bulat */
+/* label badge, kelas badge, kata kerja deskripsi */
 $aksiMeta = [
-    'INSERT' => ['Tambah', 'b-green', 'plus', ''],
-    'UPDATE' => ['Ubah', 'b-amber', 'edit', 'warn'],
-    'DELETE' => ['Hapus', 'b-rose', 'trash', 'rose'],
+    'INSERT' => ['CREATE', 'b-green', 'Menambahkan data'],
+    'UPDATE' => ['UPDATE', 'b-sky', 'Mengubah data'],
+    'DELETE' => ['DELETE', 'b-rose', 'Menghapus data'],
 ];
-
-$bulan = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-
-/* Kelompokkan per tanggal (data diasumsikan terurut terbaru lebih dulu) */
-$grup = [];
-foreach ($logs as $log) {
-    $ts = isset($log['created_at']) ? strtotime((string) $log['created_at']) : false;
-    if ($ts) {
-        $kunci = date('Y-m-d', $ts);
-        $labelTgl = (int) date('j', $ts) . ' ' . $bulan[(int) date('n', $ts) - 1] . ' ' . date('Y', $ts);
-        $log['_jam'] = date('H:i', $ts);
-    } else {
-        $kunci = 'tanpa-tanggal';
-        $labelTgl = 'Tanggal tidak diketahui';
-        $log['_jam'] = '-';
-    }
-    if (!isset($grup[$kunci])) {
-        $grup[$kunci] = ['label' => $labelTgl, 'items' => []];
-    }
-    $grup[$kunci]['items'][] = $log;
-}
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -244,17 +356,13 @@ foreach ($logs as $log) {
         .notice-warning { background:var(--amber-bg); color:var(--amber); border:1px solid #f6d9a0; }
         .notice-info { background:var(--sky-bg); color:var(--sky); border:1px solid #c4d8fa; }
 
-        .badge { display:inline-flex; align-items:center; padding:3px 11px; border-radius:999px; font-size:.78rem; font-weight:700; white-space:nowrap; }
-        .b-amber { background:var(--amber-bg); color:var(--amber); }
+        .badge { display:inline-flex; align-items:center; padding:3px 12px; border-radius:999px; font-size:.78rem; font-weight:700; letter-spacing:.02em; white-space:nowrap; }
         .b-green { background:var(--g-100); color:var(--g-800); }
         .b-rose { background:var(--rose-bg); color:var(--rose); }
         .b-sky { background:var(--sky-bg); color:var(--sky); }
 
         .ico { width:46px; height:46px; border-radius:50%; flex:none; background:var(--g-100); color:var(--g-700); display:grid; place-items:center; }
         .ico svg { width:22px; height:22px; }
-        .ico.warn { background:var(--amber-bg); color:var(--amber); }
-        .ico.rose { background:var(--rose-bg); color:var(--rose); }
-        .ico.sky { background:var(--sky-bg); color:var(--sky); }
 
         /* Filter */
         .panel { background:#fff; border:1px solid var(--line); border-radius:20px; padding:18px; margin-bottom:22px; }
@@ -268,23 +376,51 @@ foreach ($logs as $log) {
             background-repeat:no-repeat; background-position:right 14px center; background-size:18px; }
         .filter-actions { grid-column:1 / -1; display:flex; gap:12px; flex-wrap:wrap; }
 
-        /* Daftar log */
+        /* Tabel log (gaya kartu seperti contoh) */
         .sec-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin:0 0 10px; }
         .sec-title { margin:0; font-size:1.125rem; font-weight:700; letter-spacing:-.01em; }
         .sec-count { font-size:.9rem; color:var(--ink-3); }
-        .group-label { margin:22px 0 8px; font-size:.875rem; font-weight:600; color:var(--ink-3); }
-        .list { list-style:none; margin:0; padding:0; background:#fff; border:1px solid var(--line); border-radius:20px; overflow:hidden; }
-        .log { display:grid; grid-template-columns:46px minmax(0,1fr) auto; gap:4px 14px; align-items:center; padding:14px 18px; border-bottom:1px solid var(--line); }
+
+        .log-card { background:#fff; border:1px solid var(--line); border-radius:20px; overflow:hidden; }
+        .log-cols, .log { display:grid; grid-template-columns:96px minmax(0,1fr) minmax(0,1.5fr); gap:0 14px; align-items:start; padding:14px 18px; }
+        .log-cols { padding-top:16px; padding-bottom:12px; font-weight:800; border-bottom:1.5px solid var(--line); }
+        .logs { list-style:none; margin:0; padding:0; }
+        .log { border-bottom:1px solid var(--line); }
         .log:last-child { border-bottom:0; }
-        .row-title { margin:0; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-        .row-sub { margin:2px 0 0; font-size:.9rem; color:var(--ink-3); overflow-wrap:anywhere; }
-        .log-detail { grid-column:2 / -1; display:flex; flex-direction:column; gap:4px; }
+        .c-time { font-size:.9rem; color:var(--ink-2); line-height:1.45; }
+        .c-time .d { font-weight:600; color:var(--ink); display:block; }
+        .c-user strong { display:block; font-weight:800; overflow-wrap:anywhere; }
+        .c-user small { display:block; font-size:.85rem; color:var(--ink-3); overflow-wrap:anywhere; }
+        .c-act .badge { margin-bottom:4px; }
+        .c-act p { margin:0; color:var(--ink-2); overflow-wrap:anywhere; }
+
+        /* Rincian (struk) */
+        .log-detail { grid-column:1 / -1; margin-top:4px; }
         .dt summary { display:inline-flex; align-items:center; gap:6px; min-height:44px; cursor:pointer; font-weight:700; color:var(--g-700); list-style:none; }
         .dt summary::-webkit-details-marker { display:none; }
         .dt summary svg { width:16px; height:16px; transition:transform .15s; }
         .dt[open] summary svg { transform:rotate(90deg); }
-        .dt.sebelum summary { color:var(--sky); }
-        .json-view { margin:0 0 8px; padding:12px 14px; max-height:280px; overflow:auto; background:var(--g-50); border:1px solid var(--line); border-radius:12px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.8125rem; line-height:1.55; white-space:pre; color:var(--ink-2); }
+
+        .struk { max-width:420px; margin:6px 0 8px; padding:18px 18px 16px; background:#fffef9; color:#2a2a24;
+            font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.84rem; line-height:1.55;
+            border:1px solid #e8e4d4; border-radius:6px; box-shadow:0 2px 10px rgba(23,35,26,.07); position:relative; }
+        .struk::before, .struk::after { content:""; position:absolute; left:0; right:0; height:8px;
+            background:linear-gradient(-45deg,transparent 6px,#fffef9 0) 0 0/12px 8px repeat-x, linear-gradient(45deg,transparent 6px,#fffef9 0) 0 0/12px 8px repeat-x; }
+        .s-title { text-align:center; font-weight:800; letter-spacing:.08em; }
+        .s-sep { border-top:2px dashed #bdb8a2; margin:10px 0; }
+        .s-line { display:flex; align-items:flex-end; gap:6px; padding:1px 0; }
+        .s-k { flex:none; max-width:46%; overflow-wrap:anywhere; }
+        .s-lead { flex:1; min-width:10px; border-bottom:2px dotted #c9c4ae; margin-bottom:5px; }
+        .s-v { flex:none; max-width:54%; text-align:right; font-weight:700; overflow-wrap:anywhere; }
+        .s-change { padding:6px 0 8px; border-bottom:1px dotted #d6d1bb; }
+        .s-change:last-of-type { border-bottom:0; }
+        .s-field { font-weight:800; margin-bottom:2px; }
+        .s-from, .s-to { display:flex; gap:8px; justify-content:space-between; }
+        .s-from span, .s-to span { flex:none; color:#6d6a58; }
+        .s-from s { color:var(--rose); text-decoration:line-through; text-align:right; overflow-wrap:anywhere; }
+        .s-to b { color:var(--g-800); text-align:right; overflow-wrap:anywhere; }
+        .s-note, .s-foot { text-align:center; color:#6d6a58; overflow-wrap:anywhere; }
+        .s-foot { font-size:.78rem; letter-spacing:.04em; }
 
         .empty { text-align:center; padding:40px 24px; background:#fff; border:1px solid var(--line); border-radius:20px; }
         .empty .ico { margin:0 auto 14px; width:64px; height:64px; }
@@ -300,11 +436,9 @@ foreach ($logs as $log) {
             .panel { padding:16px; }
             .filter { grid-template-columns:minmax(0,1fr); }
             .filter-actions .btn { width:100%; }
-            .log { grid-template-columns:46px minmax(0,1fr); grid-template-areas:"ico main" "ico bdg" "det det"; padding:14px; }
-            .log > .ico { grid-area:ico; align-self:start; }
-            .log > .log-main { grid-area:main; }
-            .log > .badge { grid-area:bdg; justify-self:start; }
-            .log-detail { grid-area:det; grid-column:auto; }
+            .log-cols, .log { grid-template-columns:78px minmax(0,1fr) minmax(0,1.35fr); gap:0 10px; padding:14px 12px; }
+            .c-time { font-size:.8rem; }
+            .struk { max-width:none; font-size:.8rem; }
         }
         @media (prefers-reduced-motion:reduce) { *, *::before, *::after { transition:none !important; animation:none !important; } }
     </style>
@@ -395,45 +529,57 @@ foreach ($logs as $log) {
                             <?php if ($adaFilter): ?><a class="btn btn-ghost" href="<?= base_url('admin/audit-log') ?>">Hapus filter</a><?php endif; ?>
                         </div>
                     <?php else: ?>
-                        <?php foreach ($grup as $g): ?>
-                            <h3 class="group-label"><?= $e($g['label']) ?></h3>
-                            <ul class="list">
-                                <?php foreach ($g['items'] as $log):
+                        <div class="log-card">
+                            <div class="log-cols" aria-hidden="true">
+                                <span>Waktu</span><span>Pengguna</span><span>Aktivitas</span>
+                            </div>
+                            <ul class="logs">
+                                <?php foreach ($logs as $log):
+                                    $ts = isset($log['created_at']) ? strtotime((string) $log['created_at']) : false;
+                                    $tglTxt = $ts ? date('d/m/y', $ts) : '-';
+                                    $jamTxt = $ts ? date('H:i:s', $ts) : '';
+                                    $tglLengkap = $ts ? date('d/m/Y H:i:s', $ts) : '-';
+
                                     $aksi = strtoupper((string) (isset($log['aksi']) ? $log['aksi'] : ''));
-                                    $am = isset($aksiMeta[$aksi]) ? $aksiMeta[$aksi] : [($aksi !== '' ? $aksi : '-'), 'b-sky', 'info', 'sky'];
+                                    $am = isset($aksiMeta[$aksi]) ? $aksiMeta[$aksi] : [($aksi !== '' ? $aksi : '-'), 'b-sky', 'Mengubah data'];
+
                                     $pelaku = (isset($log['user_nama']) && $log['user_nama'] !== '' && $log['user_nama'] !== null) ? $log['user_nama'] : 'System';
                                     $recId = (isset($log['record_id']) && $log['record_id'] !== '' && $log['record_id'] !== null) ? $log['record_id'] : '-';
+                                    $tabelRaw = isset($log['tabel']) ? (string) $log['tabel'] : '';
+                                    $tabelTxt = $tabelRaw !== '' ? (isset($tabelOpsi[$tabelRaw]) ? $tabelOpsi[$tabelRaw] : ucwords(str_replace('_', ' ', $tabelRaw))) : '-';
                                     $sebelum = isset($log['sebelum']) ? $log['sebelum'] : '';
                                     $sesudah = isset($log['sesudah']) ? $log['sesudah'] : '';
+
+                                    $struk = auditStruk($aksi, $sebelum, $sesudah, [
+                                        'Waktu' => $tglLengkap,
+                                        'Oleh' => (string) $pelaku,
+                                        'Tabel' => $tabelTxt,
+                                        'ID Data' => (string) $recId,
+                                    ]);
                                 ?>
                                     <li class="log">
-                                        <span class="ico <?= $e($am[3]) ?>" aria-hidden="true"><?= icon($am[2]) ?></span>
-                                        <div class="log-main">
-                                            <p class="row-title"><?= $e($pelaku) ?></p>
-                                            <p class="row-sub">Tabel <?= $e(isset($log['tabel']) ? $log['tabel'] : '-') ?> &middot; ID <?= $e($recId) ?> &middot; <?= $e($log['_jam']) ?></p>
+                                        <div class="c-time"><span class="d"><?= $e($tglTxt) ?></span><?= $e($jamTxt) ?></div>
+                                        <div class="c-user">
+                                            <strong><?= $e($pelaku) ?></strong>
+                                            <small><?= $e($tabelTxt) ?></small>
                                         </div>
-                                        <span class="badge <?= $e($am[1]) ?>"><?= $e($am[0]) ?></span>
+                                        <div class="c-act">
+                                            <span class="badge <?= $e($am[1]) ?>"><?= $e($am[0]) ?></span>
+                                            <p><?= $e($am[2]) ?> <?= $e(strtolower($tabelTxt)) ?> (ID <?= $e($recId) ?>)</p>
+                                        </div>
 
                                         <?php if ($sebelum || $sesudah): ?>
                                             <div class="log-detail">
-                                                <?php if ($sebelum): ?>
-                                                    <details class="dt sebelum">
-                                                        <summary><?= icon('chevron-right') ?>Data sebelum</summary>
-                                                        <pre class="json-view"><?= $e(auditFormatJson($sebelum)) ?></pre>
-                                                    </details>
-                                                <?php endif; ?>
-                                                <?php if ($sesudah): ?>
-                                                    <details class="dt">
-                                                        <summary><?= icon('chevron-right') ?>Data sesudah</summary>
-                                                        <pre class="json-view"><?= $e(auditFormatJson($sesudah)) ?></pre>
-                                                    </details>
-                                                <?php endif; ?>
+                                                <details class="dt">
+                                                    <summary><?= icon('chevron-right') ?>Lihat rincian</summary>
+                                                    <?= $struk /* sudah di-escape di dalam helper */ ?>
+                                                </details>
                                             </div>
                                         <?php endif; ?>
                                     </li>
                                 <?php endforeach; ?>
                             </ul>
-                        <?php endforeach; ?>
+                        </div>
                     <?php endif; ?>
                 </section>
             </div>

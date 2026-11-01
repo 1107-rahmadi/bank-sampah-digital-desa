@@ -349,6 +349,13 @@ body.money-hidden .money { letter-spacing: .12em; }
 .list { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: .25rem 1.125rem; }
 .row { display: flex; align-items: center; gap: .875rem; padding: .875rem 0; border-bottom: 1px solid var(--line); }
 .row:last-child { border-bottom: 0; }
+.row-aksi { display: flex; justify-content: flex-end; padding: 0 0 .75rem; }
+.btn-batal {
+    background: transparent; border: 1px solid var(--rose); color: var(--rose);
+    border-radius: 999px; padding: .3rem .9rem; font: inherit; font-size: .8125rem;
+    font-weight: 600; cursor: pointer;
+}
+.btn-batal:hover { background: var(--rose-bg); }
 .row-ico {
     width: 46px; height: 46px; border-radius: 50%; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
@@ -574,6 +581,13 @@ if (window.__moneyHidden) { document.body.classList.add('money-hidden'); }
                                     <span class="badge badge-<?= $kelas ?>"><?= $label ?></span>
                                 </span>
                             </div>
+                            <?php if (($p['status'] ?? '') === 'DIAJUKAN'): ?>
+                                <form class="row-aksi" method="POST" action="<?= base_url('nasabah/pencairan/batal') ?>" onsubmit="return confirm('Batalkan pengajuan ini? Saldo yang tertahan akan dilepas kembali.')">
+                                    <?= csrfField() ?>
+                                    <input type="hidden" name="id" value="<?= (int) ($p['id'] ?? 0) ?>">
+                                    <button type="submit" class="btn-batal">Batalkan pengajuan</button>
+                                </form>
+                            <?php endif; ?>
                         <?php endforeach; ?>
                     <?php else: ?>
                         <div class="empty">
