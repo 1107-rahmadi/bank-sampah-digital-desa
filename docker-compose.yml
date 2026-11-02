@@ -1,0 +1,38 @@
+# Bank Sampah Digital Desa - web (PHP/Apache) + database (MariaDB)
+#
+# Pakai:
+#   cp docker.env.example docker.env   # lalu isi sandi dan API_SECRET
+#   docker compose up -d --build
+#
+# Web hanya dibuka di 127.0.0.1:8080. Akses publik lewat tunnel
+# (mis. tunnel.my.id) yang diarahkan ke port ini.
+
+services:
+  web:
+    build: .
+    image: banksampah-web
+    env_file: docker.env
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: mariadb:10.11
+    env_file: docker.env
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database:/app-sql:ro
+      - ./docker/db/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  db_data:

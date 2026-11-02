@@ -183,8 +183,11 @@ CREATE TABLE IF NOT EXISTS `transaksi_beli` (
     INDEX `idx_beli_status` (`status`),
     CONSTRAINT `fk_beli_bank` FOREIGN KEY (`bank_sampah_id`)
         REFERENCES `bank_sampah` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+    -- RESTRICT, bukan SET NULL/CASCADE: nasabah_id dipakai di chk_beli_tipe,
+    -- dan MariaDB >= 10.5 menolak kolom CHECK yang diubah otomatis oleh FK.
+    -- SET NULL juga akan melanggar chk_beli_tipe (BR-08: transaksi tidak dihapus).
     CONSTRAINT `fk_beli_nasabah` FOREIGN KEY (`nasabah_id`)
-        REFERENCES `nasabah` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+        REFERENCES `nasabah` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT `fk_beli_petugas` FOREIGN KEY (`petugas_id`)
         REFERENCES `users` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
     -- CHECK constraint: harus sesuai tipe

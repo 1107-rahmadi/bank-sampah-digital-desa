@@ -61,7 +61,8 @@ function getDbConnection(): PDO
             $pdo = new PDO($dsn, DB_USER, DB_PASSWORD, $options);
         } catch (PDOException $e) {
             // Log error dalam development
-            if ($_ENV['APP_DEBUG'] ?? false) {
+            // filter_var: teks "false" dari .env harus dibaca false, bukan true
+            if (filter_var($_ENV['APP_DEBUG'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
                 throw new PDOException(
                     "Koneksi database gagal: " . $e->getMessage(),
                     (int)$e->getCode(),

@@ -1,0 +1,27 @@
+# Rahasia dan riwayat git
+.git
+.env
+.env.*
+docker.env
+
+# File uji, debug, dan sisa versi lama: tidak ikut ke server
+tests/
+tools/
+bank_sampah/
+public/test-*.php
+public/debug-url.php
+api/tes.php
+config/tes_koneksi.php
+cek_session.php
+login.php
+login.css
+database.sql
+lib/tcpdf/examples/
+lib/install_tcpdf.php
+
+# Dokumentasi dan file Docker sendiri
+*.md
+STRUKTUR_FOLDER.txt
+Dockerfile
+docker-compose.yml
+docker.env.example

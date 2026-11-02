@@ -1,8 +1,11 @@
+# Folder ini boleh diakses dari web (folder induk ditutup)
+Require all granted
+
 # Aktifkan rewrite engine
 RewriteEngine On
 
-# Base path: /Project-Backend-BankSampah/public/
-RewriteBase /banksampah/public/
+# Tanpa RewriteBase: Apache memakai lokasi folder ini sendiri, sehingga
+# berjalan di /banksampah/public/ (XAMPP) maupun di / (Docker).
 
 # Jika file fisik ada, langsung serve
 RewriteCond %{REQUEST_FILENAME} !-f

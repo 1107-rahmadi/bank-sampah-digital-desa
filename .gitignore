@@ -39,3 +39,6 @@ Thumbs.db
 # Secret keys
 *.pem
 *.key
+
+# Konfigurasi Docker (berisi sandi)
+docker.env

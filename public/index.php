@@ -13,8 +13,11 @@ define('SESSION_TIMEOUT', 300);
 ini_set('session.gc_maxlifetime', (string) SESSION_TIMEOUT);
 
 // Cookie sesi: HttpOnly + SameSite (NFR-01). Flag Secure hanya di HTTPS.
+// Di belakang tunnel/reverse proxy, HTTPS berakhir di proxy dan container
+// menerima HTTP biasa; proxy memberi tahu lewat header X-Forwarded-Proto.
 $httpsAktif = (!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off')
-    || (isset($_SERVER['SERVER_PORT']) && (int) $_SERVER['SERVER_PORT'] === 443);
+    || (isset($_SERVER['SERVER_PORT']) && (int) $_SERVER['SERVER_PORT'] === 443)
+    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
 
 session_set_cookie_params([
     'lifetime' => 0,

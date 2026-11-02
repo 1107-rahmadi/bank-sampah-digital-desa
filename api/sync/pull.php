@@ -8,9 +8,10 @@ require_once __DIR__ . '/../base.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') api_error('Method not allowed', 405);
 
+// Kredensial dari .env / environment (konstanta DB_* dimuat oleh base.php)
 $pdo = new PDO(
-  'mysql:host=localhost;dbname=bank_sampah_desa;charset=utf8mb4',
-  'root', '',
+  sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', DB_HOST, DB_PORT, DB_NAME),
+  DB_USER, DB_PASSWORD,
   [
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,

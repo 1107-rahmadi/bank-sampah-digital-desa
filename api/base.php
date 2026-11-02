@@ -5,6 +5,10 @@
  * Helper untuk response API standard
  */
 
+// Memuat .env dan konstanta DB_*, supaya endpoint yang dipanggil langsung
+// (mis. api/sync/*.php) memakai konfigurasi yang sama dengan api/index.php.
+require_once __DIR__ . '/../config/database.php';
+
 // Set default JSON response header
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -109,6 +113,25 @@ function validate_required(array $data, array $required): ?array
 }
 
 /**
+ * Kunci tanda tangan token API dari API_SECRET (.env atau environment).
+ * Tidak ada nilai bawaan: kunci bawaan yang tertulis di kode bisa dibaca
+ * siapa pun dari repo, sehingga token ADMIN bisa dipalsukan.
+ *
+ * @return string
+ */
+function api_secret(): string
+{
+    $secret = $_ENV['API_SECRET'] ?? getenv('API_SECRET');
+
+    if (!is_string($secret) || strlen($secret) < 32) {
+        error_log('API_SECRET belum diisi atau kurang dari 32 karakter.');
+        api_error('Server belum dikonfigurasi. Hubungi administrator.', 500);
+    }
+
+    return $secret;
+}
+
+/**
  * Generate API token (simple version)
  * In production, use JWT or similar
  *
@@ -124,7 +147,7 @@ function generate_api_token(array $user): string
     ]);
 
     $base64 = base64_encode($payload);
-    $signature = hash_hmac('sha256', $base64, $_ENV['API_SECRET'] ?? 'bank-sampah-secret-key');
+    $signature = hash_hmac('sha256', $base64, api_secret());
 
     return $base64 . '.' . $signature;
 }
@@ -147,7 +170,7 @@ function verify_api_token(?string $token): ?array
     }
 
     [$base64, $signature] = $parts;
-    $expectedSignature = hash_hmac('sha256', $base64, $_ENV['API_SECRET'] ?? 'bank-sampah-secret-key');
+    $expectedSignature = hash_hmac('sha256', $base64, api_secret());
 
     if (!hash_equals($expectedSignature, $signature)) {
         return null;

@@ -31,7 +31,8 @@ define('APP_SESSION_LIFETIME', (int)($_ENV['SESSION_LIFETIME'] ?? 3600));
 
 // Auto-detect APP_URL dari request jika tidak diset
 if (empty($_ENV['APP_URL'])) {
-    $scheme = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http';
+    $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https' ? 'https' : 'http';
     $host = trim($_SERVER['HTTP_HOST'] ?? 'localhost', '.');
     $scriptName = dirname($_SERVER['SCRIPT_NAME'] ?? '');
     // Hapus /public dari path jika ada (untuk compatibility dengan route ini)

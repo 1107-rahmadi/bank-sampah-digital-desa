@@ -1,0 +1,5 @@
+# Tolak akses web ke seluruh folder proyek (.env, config/, database/, dll).
+# Hanya public/ dan api/ yang dibuka kembali lewat .htaccess masing-masing.
+# Berlaku saat proyek diletakkan langsung di htdocs (XAMPP); di Docker
+# DocumentRoot sudah menunjuk ke public/.
+Require all denied

@@ -1,0 +1,2 @@
+# Skrip shell dijalankan di Linux (container); harus LF walau di-clone di Windows
+*.sh text eol=lf

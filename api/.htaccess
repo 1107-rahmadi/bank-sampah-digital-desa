@@ -1,3 +1,6 @@
+# Folder ini boleh diakses dari web (folder induk ditutup)
+Require all granted
+
 RewriteEngine On
 
 # Teruskan header Authorization ke PHP (Apache sering membuangnya)
