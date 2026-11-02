@@ -60,10 +60,11 @@ function match_route(array $routes)
     $uri = trim($uri, '/');
 
     // Hilangkan nama folder proyek dari URI.
-    // Contoh: belajar_ai/api/health menjadi api/health.
-    $projectBase = 'belajar_ai';
+    // Contoh: banksampah/api/health menjadi api/health.
+    // Folder diambil dari lokasi script, jadi tidak perlu diubah saat folder diganti.
+    $projectBase = trim(str_replace('\\', '/', dirname(dirname($_SERVER['SCRIPT_NAME']))), '/');
 
-    if (strpos($uri, $projectBase . '/') === 0) {
+    if ($projectBase !== '' && strpos($uri, $projectBase . '/') === 0) {
         $uri = substr($uri, strlen($projectBase) + 1);
     }
 

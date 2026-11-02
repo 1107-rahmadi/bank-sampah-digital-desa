@@ -2,7 +2,7 @@
 RewriteEngine On
 
 # Base path: /Project-Backend-BankSampah/public/
-RewriteBase /belajar_ai/public/
+RewriteBase /banksampah/public/
 
 # Jika file fisik ada, langsung serve
 RewriteCond %{REQUEST_FILENAME} !-f
