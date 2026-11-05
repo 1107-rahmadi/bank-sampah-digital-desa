@@ -11,6 +11,10 @@ session_start();
 // Load database config
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/base.php';
+// Helper yang dipakai model (uuidV4, nomorUrut, toCents, fromCents, ...);
+// tanpa ini pengajuan pencairan lewat API gagal dengan error 500.
+require_once __DIR__ . '/../app/helpers/util.php';
+require_once __DIR__ . '/../app/helpers/money.php';
 
 // Path constants untuk API
 define('ROOT_PATH', dirname(__DIR__));
